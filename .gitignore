@@ -1,4 +1,5 @@
-.pio
+.pio/*
+!.pio/libdeps
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json

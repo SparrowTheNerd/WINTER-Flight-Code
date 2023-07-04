@@ -11,7 +11,6 @@
 #define CS_SD   PC0
 
 Adafruit_ADXL375 IMU_HighG = Adafruit_ADXL375(1,&Wire);
-//MS5xxx barometer(&Wire);
 MS5xxx barometer(&Wire);
 LSM9DS1 IMU;
 
@@ -20,7 +19,8 @@ void barometerInit();
 void getSensorData();
 float gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp, prevPrs;
 uint32_t time, timeBaro;
-bool magAvail;
+bool magAvail;  //is there mag data available?
+bool freshBaro; //is the barometer measurement fresh?
 
 void setup() {
   pinMode(BZR,OUTPUT);
@@ -63,6 +63,10 @@ void loop() {
 }
 
 void getSensorData() {
+  if ((micros() - timeBaro) >= 25000) {   //40hz sample rate
+    barometer.send_cmd(MS5xxx_CMD_ADC_CONV+MS5xxx_CMD_ADC_1024); // start DAQ and conversion of ADC data. Do this before rest of fn so oversampler has time
+    freshBaro = true;
+  }
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
     gX = IMU.calcGyro(IMU.gx);
@@ -82,7 +86,7 @@ void getSensorData() {
     mZ = IMU.calcMag(IMU.mz);
     magAvail = true;
   }
-  if ((micros() - timeBaro) >= 25000) {   //40hz sample rate
+  if (freshBaro) {
     barometer.Readout();
     timeBaro = micros();
     prs = barometer.GetPres();
