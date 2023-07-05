@@ -621,7 +621,7 @@ void LSM9DS1::readGyro()
 {
 	uint8_t temp[6]; // We'll read six bytes from the gyro into temp
 	if ( xgReadBytes(OUT_X_L_G, temp, 6) == 6) // Read 6 bytes, beginning at OUT_X_L_G
-	{
+	{	
 		gx = (temp[1] << 8) | temp[0]; // Store x-axis values into gx
 		gy = (temp[3] << 8) | temp[2]; // Store y-axis values into gy
 		gz = (temp[5] << 8) | temp[4]; // Store z-axis values into gz
@@ -1219,11 +1219,9 @@ uint8_t LSM9DS1::I2CreadBytes(uint8_t address, uint8_t subAddress, uint8_t * des
 	retVal = settings.device.i2c->endTransmission(false); // Send Tx buffer, send a restart to keep connection alive
 	if (retVal != 0) // endTransmission should return 0 on success
 		return 0;
-
 	retVal = settings.device.i2c->requestFrom(address, count);  // Read bytes from slave register address
 	if (retVal != count)
 		return 0;
-
 	for (int i=0; i<count;)
 		dest[i++] = settings.device.i2c->read();
 

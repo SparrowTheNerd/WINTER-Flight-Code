@@ -61,7 +61,7 @@ class MS5xxx
     byte send_cmd(byte aCMD);
     
     void ReadProm();
-    void Readout();
+    void Readout(unsigned long D1, unsigned long D2);
 
     unsigned int Calc_CRC4(unsigned char poly=0x30);
     unsigned int Read_CRC4();

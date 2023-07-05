@@ -39,7 +39,7 @@ byte MS5xxx::send_cmd(byte aCMD)
 }
 
 uint8_t MS5xxx::connect() {
-	_Wire->begin();
+	//_Wire->begin();
 	_Wire->beginTransmission(i2caddr);
 	uint8_t ret=_Wire->endTransmission(true);
 	return ret;
@@ -146,15 +146,15 @@ unsigned long MS5xxx::read_adc(unsigned char aCMD)
   return value;
 }
 
-void MS5xxx::Readout() {
-	unsigned long D1=0, D2=0;
+void MS5xxx::Readout(unsigned long D1, unsigned long D2) {
+	//unsigned long D1=0, D2=0;
 	
 	float dT;
 	float OFF;
 	float SENS;
 
-	D2=read_adc(MS5xxx_CMD_ADC_D2+MS5xxx_CMD_ADC_1024);
-	D1=read_adc(MS5xxx_CMD_ADC_D1+MS5xxx_CMD_ADC_1024);
+	//D2=read_adc(MS5xxx_CMD_ADC_D2+MS5xxx_CMD_ADC_1024);
+	//D1=read_adc(MS5xxx_CMD_ADC_D1+MS5xxx_CMD_ADC_1024);
 
 	// calculate 1st order pressure and temperature (MS5607 1st order algorithm)
 	dT=D2-C[5]*pow(2,8);

@@ -4,7 +4,6 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_ADXL375.h>
 #include <MS5xxx.h>
-// #include <MS5607.h>
 #include <SD.h>
 
 #define BZR     PC8
@@ -30,15 +29,13 @@ void setup() {
   SerialUSB.begin(); //start serial port
   while(!SerialUSB);
 
-  Wire.setSDA(PB9); //configure correct pins for I2C1
-  Wire.setSCL(PB8);
-  Wire.setClock(1000000);
-  Wire.begin();
+  Wire.begin(uint32_t(PB9_ALT0),uint32_t(PB8_ALT0));
 
   imuInit();    //set IMU settings
   barometerInit();
   
   IMU_HighG.begin();    //highG needs to be looked at, values are weird
+  Wire.setClock(400000);
 
   //SD.begin(CS_SD);
   time = micros();
@@ -47,32 +44,86 @@ void setup() {
 
 void loop() {
   getSensorData();
-  Serial.print(gX); Serial.print(","); Serial.print(gY); Serial.print(","); Serial.print(gZ); Serial.print(" , "); 
-  Serial.print(aX); Serial.print(","); Serial.print(aY); Serial.print(","); Serial.print(aZ); Serial.print(" , ");
-  if(magAvail) {
-    Serial.print(mX); Serial.print(","); Serial.print(mY); Serial.print(","); Serial.print(mZ); Serial.print(" , ");
-    magAvail = false;
+  // Serial.print(gX); Serial.print(","); Serial.print(gY); Serial.print(","); Serial.print(gZ); Serial.print(" , "); 
+  // Serial.print(aX); Serial.print(","); Serial.print(aY); Serial.print(","); Serial.print(aZ); Serial.print(" , ");
+  // if(magAvail) {
+  //   Serial.print(mX); Serial.print(","); Serial.print(mY); Serial.print(","); Serial.print(mZ); Serial.print(" , ");
+  //   magAvail = false;
+  // }
+  // else{ Serial.print("     ,    ,     , "); }
+  // if(prs != prevPrs) {
+  //   Serial.println(prs);
+  //   prevPrs = prs;
+  // }
+  // else { Serial.println(""); }
+  // delayMicroseconds(1000);
+}
+
+int baroStep = 0;
+unsigned long d1, d2;
+void baroData() {     //rewritten function from MS5xxx lib so that baro low pollrate data can be gathered around IMU data (uses IMU proc time as delay)
+  unsigned long value=0;
+  unsigned long c=0;
+  switch (baroStep) {
+  case 0:
+    if ((micros() - timeBaro) >= 25000) {   //40hz sample rate
+      barometer.send_cmd(MS5xxx_CMD_ADC_CONV+MS5xxx_CMD_ADC_D2+MS5xxx_CMD_ADC_1024);
+      baroStep = 1;
+      timeBaro = micros();
+    }
+    break;
+  case 1:
+    barometer.send_cmd(MS5xxx_CMD_ADC_READ); // read out values
+    Wire.requestFrom(0x76, 3);
+    c = Wire.read();
+    value = (c<<16);
+    c = Wire.read();
+    value += (c<<8);
+    c = Wire.read();
+    value += c;
+    Wire.endTransmission(true);
+    d2 = value;
+    baroStep = 2;
+    break;
+  case 2:
+    barometer.send_cmd(MS5xxx_CMD_ADC_CONV+MS5xxx_CMD_ADC_D1+MS5xxx_CMD_ADC_1024);
+    baroStep = 3;
+    break;
+  case 3:
+    barometer.send_cmd(MS5xxx_CMD_ADC_READ); // read out values
+    Wire.requestFrom(0x76, 3);
+    c = Wire.read();
+    value = (c<<16);
+    c = Wire.read();
+    value += (c<<8);
+    c = Wire.read();
+    value += c;
+    Wire.endTransmission(true);
+    d1 = value;
+    baroStep = 4;
+    break;
+  case 4:
+    barometer.Readout(d1,d2);
+    prs = barometer.GetPres();
+    tmp = barometer.GetTemp();
+    baroStep = 0;
+    break;
   }
-  else{ Serial.print("    ,    ,    , "); }
-  if(prs != prevPrs) {
-    Serial.println(prs);
-    prevPrs = prs;
-  }
-  else { Serial.println(""); }
-  delayMicroseconds(2500);
 }
 
 void getSensorData() {
-  if ((micros() - timeBaro) >= 25000) {   //40hz sample rate
-    barometer.send_cmd(MS5xxx_CMD_ADC_CONV+MS5xxx_CMD_ADC_1024); // start DAQ and conversion of ADC data. Do this before rest of fn so oversampler has time
-    freshBaro = true;
-  }
+  baroData();
+  time = micros();
   if (IMU.gyroAvailable()) {
+    
     IMU.readGyro();
     gX = IMU.calcGyro(IMU.gx);
     gY = IMU.calcGyro(IMU.gy);
     gZ = IMU.calcGyro(IMU.gz);
+
   }
+  float dt = (micros()-time)/1000.;
+  Serial.print(dt,3); Serial.println(",");
   if (IMU.accelAvailable()) {
     IMU.readAccel();
     aX = IMU.calcAccel(IMU.ax);
@@ -85,12 +136,6 @@ void getSensorData() {
     mY = IMU.calcMag(IMU.my);
     mZ = IMU.calcMag(IMU.mz);
     magAvail = true;
-  }
-  if (freshBaro) {
-    barometer.Readout();
-    timeBaro = micros();
-    prs = barometer.GetPres();
-    tmp = barometer.GetTemp()/100.;
   }
 }
 
