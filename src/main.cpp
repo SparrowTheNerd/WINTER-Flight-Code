@@ -4,7 +4,7 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_ADXL375.h>
 #include <MS5xxx.h>
-#include <SD.h>
+#include <SdFat.h>
 
 #define BZR     PC8
 #define CS_SD   PC0
@@ -12,14 +12,30 @@
 Adafruit_ADXL375 IMU_HighG = Adafruit_ADXL375(1,&Wire);
 MS5xxx barometer(&Wire);
 LSM9DS1 IMU;
+SdFat SD;
+File file;
 
 void imuInit();
 void barometerInit();
 void getSensorData();
-float gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp, prevPrs;
-uint32_t time, timeBaro;
+void quatCalcs();
+uint32_t Time, timeBaro;
 bool magAvail;  //is there mag data available?
-bool freshBaro; //is the barometer measurement fresh?
+bool baroAvail; //is there baro data available?
+char fileName[] = "FLIGHTDATA00.bin";
+float dT;
+int quatNormCounter = 0;
+uint32_t quatTimer;
+float angX, angY, angZ;
+
+struct sensData {   
+  float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
+} data;
+
+struct quaternion {
+  float i, j, k;    //imaginary values
+  float r;          //real value
+} masterQuat;
 
 void setup() {
   pinMode(BZR,OUTPUT);
@@ -37,26 +53,102 @@ void setup() {
   IMU_HighG.begin();    //highG needs to be looked at, values are weird
   Wire.setClock(400000);
 
-  //SD.begin(CS_SD);
-  time = micros();
-  timeBaro = micros(); 
+  Time = micros();
+  timeBaro = micros();
+
+  masterQuat = {.i=0, .j=0, .k=0, .r=1};
+  quatTimer = micros();
+}
+
+void quatAngles() {
+  quaternion p = masterQuat;
+  if (1-2*(p.i*p.i+p.j*p.j) != 0) {
+    angX = atan(2*(p.r*p.i+p.j*p.k)/(1-2*(p.i*p.i+p.j*p.j)));
+  } 
+  else {
+    if((p.r*p.i+p.j*p.k) > 0) {
+      angX = M_PI / 2.0f;
+    } else {
+      if((p.r*p.i+p.j*p.k) < 0) {
+        angX = -1.0f * M_PI / 2.0f;
+      } else {
+        angX = 9999999;
+        // SIGNAL ERROR DIVIDE BY ZERO!!!
+      }
+    }
+  }
+  // Convert x (roll) from radian to degrees
+  angX = angX * 180.0f / M_PI;
+
+
+  //Compute the Y (pitch) angle in radians
+  if((2*(p.i*p.j-p.k*p.i)) <= -1) {
+    angY = -1.0f * M_PI / 2.0f;
+  } else {
+    if((2*(p.r*p.j-p.k*p.i)) >= 1) {
+      angY = M_PI / 2.0f;
+    } else {
+      angY = asin(2*(p.r*p.j-p.k*p.i));
+    }
+  }
+  // Convert y (pitch) from radian to degrees
+  angY = angY * 180.0f / M_PI; 
+
+
+  // Compute the Z (Yaw) angle in radians
+  if((1-2*(p.i*p.i+p.j*p.j)) != 0) {
+     angZ = atan(2*(p.r*p.k+p.i*p.j)/(1-2*(p.j*p.j+p.k*p.k)));
+   } else {
+    if((p.r*p.k+p.i*p.j) > 0) {
+      angZ = M_PI / 2.0f;
+    } else {
+      if((p.r*p.k+p.i*p.j) < 0) {
+        angZ = -1.0f * M_PI / 2.0f;
+      } else {
+        angZ = 9999999;
+        // SIGNAL ERROR DIVIDE BY ZERO!!!
+      }
+    }
+  }
+  // Convert z (Yaw) from radian to degrees
+  angZ = angZ * 180.0f / M_PI;
 }
 
 void loop() {
   getSensorData();
-  // Serial.print(gX); Serial.print(","); Serial.print(gY); Serial.print(","); Serial.print(gZ); Serial.print(" , "); 
-  // Serial.print(aX); Serial.print(","); Serial.print(aY); Serial.print(","); Serial.print(aZ); Serial.print(" , ");
-  // if(magAvail) {
-  //   Serial.print(mX); Serial.print(","); Serial.print(mY); Serial.print(","); Serial.print(mZ); Serial.print(" , ");
-  //   magAvail = false;
-  // }
-  // else{ Serial.print("     ,    ,     , "); }
-  // if(prs != prevPrs) {
-  //   Serial.println(prs);
-  //   prevPrs = prs;
-  // }
-  // else { Serial.println(""); }
-  // delayMicroseconds(1000);
+  quatCalcs();
+  if(micros()-quatTimer >= (0.1*1000000.)) {    //output angles every 0.1s to check
+    quatAngles();
+    Serial.print(angX); Serial.print(","); Serial.print(angY); Serial.print(","); Serial.println(angZ);
+  }
+}
+
+void quaternionMultiply(quaternion t) {
+  // combine t with the masterQuat to get an integrated rotation
+  quaternion p = masterQuat;
+  masterQuat.r = (p.r * t.r) + (-p.i * t.i) + (-p.j * t.j) + (-p.k * t.k);
+  masterQuat.i = (p.r * t.i) + (p.i * t.r) + (p.j * t.k) + (-p.k * t.j);
+  masterQuat.j = (p.r * t.j) + (-p.i * t.k) + (p.j * t.r) + (p.k * t.i);
+  masterQuat.k = (p.r * t.k) + (p.i * t.j) + (-p.j * t.i) + (p.k * t.r);
+
+}
+void quatCalcs() {
+  quaternion q;
+  q.r = 1;
+  q.i = data.gX * dT / 2.;
+  q.j = data.gY * dT / 2.;
+  q.k = data.gZ * dT / 2.;
+  quaternionMultiply(q);
+  if (quatNormCounter%50==0) {
+    float quatSize = (masterQuat.r*masterQuat.r) + (masterQuat.i*masterQuat.i) + (masterQuat.j*masterQuat.j) + (masterQuat.k*masterQuat.k);
+    if (quatSize > 1.) {
+      float normFactor = 1.0 / sqrtf(quatSize);
+      masterQuat.r *= normFactor;
+      masterQuat.i *= normFactor;
+      masterQuat.j *= normFactor;
+      masterQuat.k *= normFactor;
+    }
+  }
 }
 
 int baroStep = 0;
@@ -104,8 +196,8 @@ void baroData() {     //rewritten function from MS5xxx lib so that baro low poll
     break;
   case 4:
     barometer.Readout(d1,d2);
-    prs = barometer.GetPres();
-    tmp = barometer.GetTemp();
+    data.prs = barometer.GetPres();
+    data.tmp = barometer.GetTemp();
     baroStep = 0;
     break;
   }
@@ -113,32 +205,44 @@ void baroData() {     //rewritten function from MS5xxx lib so that baro low poll
 
 void getSensorData() {
   baroData();
-  time = micros();
+  data.time = (float)micros()/1000000.;    //elapsed time in seconds
+  dT = (float)(micros()-Time)/1000000.;
+  Time = micros();
   if (IMU.gyroAvailable()) {
-    
     IMU.readGyro();
-    gX = IMU.calcGyro(IMU.gx);
-    gY = IMU.calcGyro(IMU.gy);
-    gZ = IMU.calcGyro(IMU.gz);
-
+    data.gX = IMU.calcGyro(IMU.gx);
+    data.gY = IMU.calcGyro(IMU.gy);
+    data.gZ = IMU.calcGyro(IMU.gz);
   }
-  float dt = (micros()-time)/1000.;
-  Serial.print(dt,3); Serial.println(",");
   if (IMU.accelAvailable()) {
     IMU.readAccel();
-    aX = IMU.calcAccel(IMU.ax);
-    aY = IMU.calcAccel(IMU.ay);
-    aZ = IMU.calcAccel(IMU.az);
+    data.aX = IMU.calcAccel(IMU.ax);
+    data.aY = IMU.calcAccel(IMU.ay);
+    data.aZ = IMU.calcAccel(IMU.az);
   }
   if (IMU.magAvailable()) {
     IMU.readMag();
-    mX = IMU.calcMag(IMU.mx);
-    mY = IMU.calcMag(IMU.my);
-    mZ = IMU.calcMag(IMU.mz);
+    data.mX = IMU.calcMag(IMU.mx);
+    data.mY = IMU.calcMag(IMU.my);
+    data.mZ = IMU.calcMag(IMU.mz);
     magAvail = true;
   }
 }
 
+void writeToSD() {
+  file.write((uint8_t *)&data,sizeof(data)/sizeof(uint8_t));
+}
+
+void sdInit() {     //initialize SD card and filename
+  SD.begin(CS_SD, SPI_FULL_SPEED);
+  for (uint8_t i = 0; i < 100; i++) {
+    fileName[10] = i/10 + '0';
+    fileName[11] = i%10 + '0';
+    if (SD.exists(fileName)) continue;
+    file.open(fileName);
+    break;
+  }
+}
 void imuInit() {    //initialize 9DoF IMU settings
   IMU.settings.gyro.enabled = true;
   IMU.settings.gyro.scale = 500; //500dps
