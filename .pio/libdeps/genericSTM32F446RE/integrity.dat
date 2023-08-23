@@ -1,4 +1,6 @@
-sparkfun/SparkFun LSM9DS1 IMU @ 2.0.0
-schm1tz1/MS5xxx @ 1.0.2
-adafruit/Adafruit ADXL375 @ 1.1.0
 adafruit/SdFat - Adafruit Fork @ 2.2.1
+tomstewart89/BasicLinearAlgebra @ 4.0
+sparkfun/SparkFun LSM9DS1 IMU @ 2.0.0
+adafruit/Adafruit ADXL375 @ 1.1.0
+schm1tz1/MS5xxx @ 1.0.2
+rfetick/Kalman @ 1.1.0

@@ -5,9 +5,32 @@
 #include <Adafruit_ADXL375.h>
 #include <MS5xxx.h>
 #include <SdFat.h>
+#include <Kalman.h>
+using namespace BLA;
 
 #define BZR     PC8
 #define CS_SD   PC0
+#define gXOfst 1.301940492
+#define gYOfst 0.859327296
+#define gZOfst 0.528033635
+
+#define Nstate  10      //xyz pos, xyz vel, xyz ang
+#define Nobs    10      //xyz accel, xyz gyro, xyz mag, baro
+//measurement stddevs
+#define stddev_xl   0.180   //180 milli G's from LSM9DS1 datasheet
+#define stddev_gy   2.0     //2 deg/s, roughly measured
+#define stddev_mg   1.0     //1 Gauss from LSM9DS1 datasheet, will improve post calibration
+#define stddev_ps   400.    //400Pa (around 10ish feet I think) from MS5607 datasheet
+//model stddev (~1/inertia)
+#define m_pos       0.1
+#define m_vel       0.1
+#define m_ang       0.5
+#define m_rol       0.5
+
+BLA::Matrix<3> obsXl; // obs vector for accel
+BLA::Matrix<3> obsGy; // obs vector for gyros
+BLA::Matrix<3> obsMg; // obs vector for magns
+BLA::Matrix<1> obsPs; // obs vector for press
 
 Adafruit_ADXL375 IMU_HighG = Adafruit_ADXL375(1,&Wire);
 MS5xxx barometer(&Wire);
@@ -18,16 +41,12 @@ File file;
 void imuInit();
 void barometerInit();
 void getSensorData();
-void quatCalcs();
 uint32_t Time, timeBaro;
 bool magAvail;  //is there mag data available?
 bool baroAvail; //is there baro data available?
 char fileName[] = "FLIGHTDATA00.bin";
 float dT;
-int quatNormCounter = 0;
-uint32_t quatTimer;
 float angX, angY, angZ;
-
 struct sensData {   
   float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
 } data;
@@ -35,7 +54,7 @@ struct sensData {
 struct quaternion {
   float i, j, k;    //imaginary values
   float r;          //real value
-} masterQuat;
+};
 
 void setup() {
   pinMode(BZR,OUTPUT);
@@ -56,99 +75,11 @@ void setup() {
   Time = micros();
   timeBaro = micros();
 
-  masterQuat = {.i=0, .j=0, .k=0, .r=1};
-  quatTimer = micros();
 }
 
-void quatAngles() {
-  quaternion p = masterQuat;
-  if (1-2*(p.i*p.i+p.j*p.j) != 0) {
-    angX = atan(2*(p.r*p.i+p.j*p.k)/(1-2*(p.i*p.i+p.j*p.j)));
-  } 
-  else {
-    if((p.r*p.i+p.j*p.k) > 0) {
-      angX = M_PI / 2.0f;
-    } else {
-      if((p.r*p.i+p.j*p.k) < 0) {
-        angX = -1.0f * M_PI / 2.0f;
-      } else {
-        angX = 9999999;
-        // SIGNAL ERROR DIVIDE BY ZERO!!!
-      }
-    }
-  }
-  // Convert x (roll) from radian to degrees
-  angX = angX * 180.0f / M_PI;
-
-
-  //Compute the Y (pitch) angle in radians
-  if((2*(p.i*p.j-p.k*p.i)) <= -1) {
-    angY = -1.0f * M_PI / 2.0f;
-  } else {
-    if((2*(p.r*p.j-p.k*p.i)) >= 1) {
-      angY = M_PI / 2.0f;
-    } else {
-      angY = asin(2*(p.r*p.j-p.k*p.i));
-    }
-  }
-  // Convert y (pitch) from radian to degrees
-  angY = angY * 180.0f / M_PI; 
-
-
-  // Compute the Z (Yaw) angle in radians
-  if((1-2*(p.i*p.i+p.j*p.j)) != 0) {
-     angZ = atan(2*(p.r*p.k+p.i*p.j)/(1-2*(p.j*p.j+p.k*p.k)));
-   } else {
-    if((p.r*p.k+p.i*p.j) > 0) {
-      angZ = M_PI / 2.0f;
-    } else {
-      if((p.r*p.k+p.i*p.j) < 0) {
-        angZ = -1.0f * M_PI / 2.0f;
-      } else {
-        angZ = 9999999;
-        // SIGNAL ERROR DIVIDE BY ZERO!!!
-      }
-    }
-  }
-  // Convert z (Yaw) from radian to degrees
-  angZ = angZ * 180.0f / M_PI;
-}
 
 void loop() {
   getSensorData();
-  quatCalcs();
-  if(micros()-quatTimer >= (0.1*1000000.)) {    //output angles every 0.1s to check
-    quatAngles();
-    Serial.print(angX); Serial.print(","); Serial.print(angY); Serial.print(","); Serial.println(angZ);
-  }
-}
-
-void quaternionMultiply(quaternion t) {
-  // combine t with the masterQuat to get an integrated rotation
-  quaternion p = masterQuat;
-  masterQuat.r = (p.r * t.r) + (-p.i * t.i) + (-p.j * t.j) + (-p.k * t.k);
-  masterQuat.i = (p.r * t.i) + (p.i * t.r) + (p.j * t.k) + (-p.k * t.j);
-  masterQuat.j = (p.r * t.j) + (-p.i * t.k) + (p.j * t.r) + (p.k * t.i);
-  masterQuat.k = (p.r * t.k) + (p.i * t.j) + (-p.j * t.i) + (p.k * t.r);
-
-}
-void quatCalcs() {
-  quaternion q;
-  q.r = 1;
-  q.i = data.gX * dT / 2.;
-  q.j = data.gY * dT / 2.;
-  q.k = data.gZ * dT / 2.;
-  quaternionMultiply(q);
-  if (quatNormCounter%50==0) {
-    float quatSize = (masterQuat.r*masterQuat.r) + (masterQuat.i*masterQuat.i) + (masterQuat.j*masterQuat.j) + (masterQuat.k*masterQuat.k);
-    if (quatSize > 1.) {
-      float normFactor = 1.0 / sqrtf(quatSize);
-      masterQuat.r *= normFactor;
-      masterQuat.i *= normFactor;
-      masterQuat.j *= normFactor;
-      masterQuat.k *= normFactor;
-    }
-  }
 }
 
 int baroStep = 0;
@@ -205,14 +136,14 @@ void baroData() {     //rewritten function from MS5xxx lib so that baro low poll
 
 void getSensorData() {
   baroData();
-  data.time = (float)micros()/1000000.;    //elapsed time in seconds
+  //time = (float)micros()/1000000.;    //elapsed time in seconds
   dT = (float)(micros()-Time)/1000000.;
   Time = micros();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
-    data.gX = IMU.calcGyro(IMU.gx);
-    data.gY = IMU.calcGyro(IMU.gy);
-    data.gZ = IMU.calcGyro(IMU.gz);
+    data.gX = IMU.calcGyro(IMU.gx) - gXOfst;
+    data.gY = IMU.calcGyro(IMU.gy) - gYOfst;
+    data.gZ = IMU.calcGyro(IMU.gz) - gZOfst;
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
