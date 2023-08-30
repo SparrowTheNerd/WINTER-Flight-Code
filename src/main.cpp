@@ -21,17 +21,31 @@
 #define stddev_xl   0.180   //180 milli G's from LSM9DS1 datasheet
 #define stddev_gy   2.0     //2 deg/s, roughly measured
 #define stddev_mg   1.0     //1 Gauss from LSM9DS1 datasheet, will improve post calibration
-#define stddev_ps   400.    //400Pa (around 10ish feet I think) from MS5607 datasheet
+#define stddev_ps   10.    //400Pa, around 10ft from MS5607 datasheet
 //model stddev (~1/inertia)
-#define m_pos       0.1
-#define m_vel       0.1
-#define m_ang       0.5
-#define m_rol       0.5
+// #define m_pos       0.1
+// #define m_vel       0.1
+// #define m_ang       0.5
+// #define m_rol       0.5
 
-BLA::Matrix<3> obsXl; // obs vector for accel
-BLA::Matrix<3> obsGy; // obs vector for gyros
-BLA::Matrix<3> obsMg; // obs vector for magns
-BLA::Matrix<1> obsPs; // obs vector for press
+BLA::Matrix<4> uXl; // cntrl vector for accel
+BLA::Matrix<3> uGy; // cntrl vector for gyros
+BLA::Matrix<3> zMg; // obs vector for magns
+BLA::Matrix<1> zBm; // obs vector for press
+BLA::Matrix<10> x; //x_n,n
+BLA::Matrix<10> x_prior; //x_n,n-1
+BLA::Matrix<3,10> Hmg;  //mag obs matrix
+BLA::Matrix<1,10> Hbm;  //baro obs matrix
+BLA::Matrix<10,4> G;    //cntrl matrix
+BLA::Matrix<10,10> F;   //state transn matrix
+BLA::Matrix<10,10> P;   //covariance matrix
+BLA::Matrix<10,10> P_prior;  //covariance prior prediction
+BLA::Matrix<3,3> Rmg;   //mag meas covar matrix
+BLA::Matrix<1,1> Rbm;   //baro meas covar matrix
+BLA::Matrix<10,3> Kmg;  //mag kalman gain
+BLA::Matrix<10>   Kbm;  //baro kalman gain
+
+
 
 Adafruit_ADXL375 IMU_HighG = Adafruit_ADXL375(1,&Wire);
 MS5xxx barometer(&Wire);
@@ -42,15 +56,17 @@ File file;
 void imuInit();
 void barometerInit();
 void getSensorData();
+void kalmanInit();
 uint32_t Time, timeBaro;
 bool magAvail;  //is there mag data available?
 bool baroAvail; //is there baro data available?
 char fileName[] = "FLIGHTDATA00.bin";
 float dT;
 float angX, angY, angZ;
-struct sensData {   
-  float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
-} data;
+float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
+// struct sensData {   
+//   float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
+// } data;
 
 struct quaternion {
   float i, j, k;    //imaginary values
@@ -62,7 +78,6 @@ BLA::Matrix<3,3> magCal_soft = { 0.961, 0.026,-0.024,
                                  0.026, 1.010,-0.002,
                                 -0.024,-0.002, 1.032};
 BLA::Matrix<3,1> mag;
-BLA::Matrix<3,1> magTemp;
 
 void setup() {
   pinMode(BZR,OUTPUT);
@@ -80,6 +95,8 @@ void setup() {
   IMU_HighG.begin();    //highG needs to be looked at, values are weird
   Wire.setClock(400000);
 
+  kalmanInit();
+
   Time = micros();
   timeBaro = micros();
 
@@ -88,6 +105,11 @@ void setup() {
 void loop() {
   getSensorData();
   delay(10);
+
+  //KALMAN HERE
+
+  magAvail = false;
+  baroAvail = false;    //reset sensor availability for next loop
 }
 
 int baroStep = 0;
@@ -135,13 +157,12 @@ void baroData() {     //rewritten function from MS5xxx lib so that baro low poll
     break;
   case 4:
     barometer.Readout(d1,d2);
-    data.prs = barometer.GetPres();
-    data.tmp = barometer.GetTemp();
+    prs = barometer.GetPres();
+    tmp = barometer.GetTemp();
     baroStep = 0;
     break;
   }
 }
-
 void getSensorData() {
   baroData();
   //time = (float)micros()/1000000.;    //elapsed time in seconds
@@ -149,31 +170,108 @@ void getSensorData() {
   Time = micros();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
-    data.gX = IMU.calcGyro(IMU.gx) - gXOfst;
-    data.gY = IMU.calcGyro(IMU.gy) - gYOfst;
-    data.gZ = IMU.calcGyro(IMU.gz) - gZOfst;
+    gX = IMU.calcGyro(IMU.gx) - gXOfst;
+    gY = IMU.calcGyro(IMU.gy) - gYOfst;
+    gZ = IMU.calcGyro(IMU.gz) - gZOfst;
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
-    data.aX = IMU.calcAccel(IMU.ax);
-    data.aY = IMU.calcAccel(IMU.ay);
-    data.aZ = IMU.calcAccel(IMU.az);
+    aX = IMU.calcAccel(IMU.ax);
+    aY = IMU.calcAccel(IMU.ay);
+    aZ = IMU.calcAccel(IMU.az);
   }
   if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
     IMU.readMag();
-    magTemp = {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
-    mag = magCal_soft * magTemp;
-    data.mX = IMU.calcMag(mag(0));
-    data.mY = IMU.calcMag(mag(1));
-    data.mZ = IMU.calcMag(mag(2));
+    mag = magCal_soft * BLA::Matrix<3,1> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+    mX = IMU.calcMag(mag(0));
+    mY = IMU.calcMag(mag(1));
+    mZ = IMU.calcMag(mag(2));
     magAvail = true;
   }
 }
 
-void writeToSD() {
-  file.write((uint8_t *)&data,sizeof(data)/sizeof(uint8_t));
+BLA::Matrix<4> localToGlobal(quaternion q, BLA::Matrix<4> meas, float Tx, float Ty, float Tz) {     //use a-priori state to transform meas from rkt to global
+  BLA::Matrix<4,4> transform = {  1-2*(q.i*q.i+q.k*q.k), 2*(q.i*q.j-q.k*q.r), 2*(q.i*q.k+q.j*q.r), Tx,
+                                  2*(q.i*q.j+q.k*q.r), 1-2*(q.i*q.i+q.k*q.k), 2*(q.j*q.k-q.i*q.r), Ty,
+                                  2*(q.i*q.k-q.j*q.r), 2*(q.j*q.k+q.i*q.r), 1-2*(q.i*q.i+q.j*q.j), Tz,
+                                              0      ,           0        ,         0            ,  1};
+  return transform*meas;
 }
 
+void HmgCalc(quaternion q) {  //calculate values of the mag obs matrix given state vector quats
+  Hmg = { 0, 0, 0, 0, 0, 0, 0, 0, 0, atan2(2*(q.r*q.k+q.i*q.j),1-2*(q.j*q.j+q.k*q.k)),
+          0, 0, 0, 0, 0, 0, 0, 0, 0,           asin(2*(q.r*q.j-q.i*q.k)),
+          0, 0, 0, 0, 0, 0, 0, 0, 0, atan2(2*(q.r*q.i+q.j*q.k),1-2*(q.i*q.i+q.j*q.j))};
+}
+
+void kalmanGain() {
+  /* magnetometer section */
+  BLA::Matrix<10,3> Hmg_T = ~Hmg;
+  Kmg = P_prior*Hmg_T*Inverse(Hmg*P_prior*Hmg_T+Rmg);
+  /* barometer section */
+  BLA::Matrix<10> Hbm_T = ~Hbm;
+  Kbm = P_prior*Hbm_T*Inverse(Hbm*P_prior*Hbm_T+Rbm);
+}
+
+void kalUpdate() {    //state update using mag and baro & update covariance
+  x = x_prior;
+  if(magAvail) {
+    x += Kmg*(zMg - Hmg*x_prior);
+  }
+  if(baroAvail) {
+    x += Kbm*(zBm - Hbm*x_prior);
+  }
+  
+  BLA::Matrix<10,10> I; I.Fill(0.);
+  for(int i=0; i<10; i++) {   //identity matrix
+    I(i,i) = 1.;
+  }
+  P = (I-Kbm*Hbm)*P_prior + (I-Kmg*Hmg)*P_prior;
+}
+
+void kalExtrapolate(float dT) {   //extrapolation / prediction function
+  float psi = uGy(0);
+  float tht = uGy(1);
+  float phi = uGy(2);
+  G = { dT*dT/2,    0   ,    0   ,         0       ,
+           0   , dT*dT/2,    0   ,         0       ,
+           0   ,    0   , dT*dT/2,         0       ,
+           dT  ,    0   ,    0   ,         0       ,
+           0   ,    dT  ,    0   ,         0       ,
+           0   ,    0   ,    dT  ,         0       ,
+           0   ,    0   ,    0   , dT*(cos(phi/2)*cos(tht/2)*cos(psi/2)+sin(phi/2)*sin(tht/2)*sin(psi/2)),
+           0   ,    0   ,    0   , dT*(sin(phi/2)*cos(tht/2)*cos(psi/2)-cos(phi/2)*sin(tht/2)*sin(psi/2)),
+           0   ,    0   ,    0   , dT*(cos(phi/2)*sin(tht/2)*cos(psi/2)+sin(phi/2)*cos(tht/2)*sin(psi/2)),
+           0   ,    0   ,    0   , dT*(cos(phi/2)*cos(tht/2)*sin(psi/2)-sin(phi/2)*sin(tht/2)*cos(psi/2))};
+  
+  F = { 1, 0, 0, dT,  0,  0, 0, 0, 0, 0,
+        0, 1, 0,  0, dT,  0, 0, 0, 0, 0,
+        0, 0, 1,  0,  0, dT, 0, 0, 0, 0,
+        0, 0, 0,  1,  0,  0, 0, 0, 0, 0,
+        0, 0, 0,  0,  1,  0, 0, 0, 0, 0,
+        0, 0, 0,  0,  0,  1, 0, 0, 0, 0,
+        0, 0, 0,  0,  0,  0, 1, 0, 0, 0,
+        0, 0, 0,  0,  0,  0, 0, 1, 0, 0,
+        0, 0, 0,  0,  0,  0, 0, 0, 1, 0,
+        0, 0, 0,  0,  0,  0, 0, 0, 0, 1};
+  
+  x_prior = (F*x + G*uXl);
+
+  P_prior = F*P*~F;
+}
+
+// void writeToSD() {
+//   file.write((uint8_t *)&data,sizeof(data)/sizeof(uint8_t));
+// }
+
+void KalmanInit() {   //initialize kalman matrices
+  Rmg = { stddev_mg,     0    ,     0     ,
+              0    , stddev_mg,     0     ,
+              0    ,     0    , stddev_mg };
+  Rbm = { stddev_ps };
+
+  Hbm = { 0, 0, 1, 0, 0, 0, 0, 0, 0, 0};
+}
 void sdInit() {     //initialize SD card and filename
   SD.begin(CS_SD, SPI_FULL_SPEED);
   for (uint8_t i = 0; i < 100; i++) {
@@ -207,6 +305,11 @@ void imuInit() {    //initialize 9DoF IMU settings
 void barometerInit() {
   barometer.connect();
   barometer.ReadProm();
+  delay(100); //make sure enough time has elapsed that all sensors will have an available measurement
+  for(int i = 0; i<4; i++) {
+    baroData(); //get an initial baro measurement
+    delay(100);
+  }
 }
 void SystemClock_Config(void) {   //set up STM32 PLL config. Code generated by STM32CubeMX software
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
