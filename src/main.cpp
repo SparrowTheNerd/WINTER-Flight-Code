@@ -1,3 +1,5 @@
+//X axis roll, Y axis pitch, Z axis yaw
+
 #include <Arduino.h>
 #include <Wire.h>
 #include <SparkFunLSM9DS1.h>
@@ -29,7 +31,7 @@
 // #define m_rol       0.5
 
 BLA::Matrix<4> uXl; // cntrl vector for accel
-BLA::Matrix<3> uGy; // cntrl vector for gyros
+BLA::Matrix<4> uGy; // cntrl vector for gyros
 BLA::Matrix<3> zMg; // obs vector for magns
 BLA::Matrix<1> zBm; // obs vector for press
 BLA::Matrix<10> x; //x_n,n
@@ -56,7 +58,8 @@ File file;
 void imuInit();
 void barometerInit();
 void getSensorData();
-void kalmanInit();
+void KalmanInit();
+void KalmanFilter();
 uint32_t Time, timeBaro;
 bool magAvail;  //is there mag data available?
 bool baroAvail; //is there baro data available?
@@ -95,21 +98,25 @@ void setup() {
   IMU_HighG.begin();    //highG needs to be looked at, values are weird
   Wire.setClock(400000);
 
-  kalmanInit();
+  KalmanInit();
 
   Time = micros();
   timeBaro = micros();
-
 }
 
 void loop() {
+  dT = (float)(micros()-Time)/1000000.;
+  Time = micros();
   getSensorData();
-  delay(10);
 
   //KALMAN HERE
 
   magAvail = false;
   baroAvail = false;    //reset sensor availability for next loop
+}
+
+float altCalc() {
+  return (288.15/-0.0065)*(pow(prs/101325.,0.1902632)-1);
 }
 
 int baroStep = 0;
@@ -160,14 +167,13 @@ void baroData() {     //rewritten function from MS5xxx lib so that baro low poll
     prs = barometer.GetPres();
     tmp = barometer.GetTemp();
     baroStep = 0;
+    zBm = altCalc();
+    baroAvail = true;
     break;
   }
 }
 void getSensorData() {
   baroData();
-  //time = (float)micros()/1000000.;    //elapsed time in seconds
-  dT = (float)(micros()-Time)/1000000.;
-  Time = micros();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
     gX = IMU.calcGyro(IMU.gx) - gXOfst;
@@ -188,9 +194,11 @@ void getSensorData() {
     mZ = IMU.calcMag(mag(2));
     magAvail = true;
   }
+  uXl = localToGlobal(BLA::Matrix<4> {aX,aY,aZ,1.}, quaternion {x_prior(6),x_prior(7),x_prior(8),x_prior(9)}, x_prior(0),x_prior(1),x_prior(2)); //accel meas to global frame
+  uGy = localToGlobal(BLA::Matrix<4> {gX,gY,gZ,1.}, quaternion {x_prior(6),x_prior(7),x_prior(8),x_prior(9)}, x_prior(0),x_prior(1),x_prior(2)); //gyros meas to global frame
 }
 
-BLA::Matrix<4> localToGlobal(quaternion q, BLA::Matrix<4> meas, float Tx, float Ty, float Tz) {     //use a-priori state to transform meas from rkt to global
+BLA::Matrix<4> localToGlobal(BLA::Matrix<4> meas, quaternion q, float Tx, float Ty, float Tz) {     //use a-priori state to transform meas from rkt to global
   BLA::Matrix<4,4> transform = {  1-2*(q.i*q.i+q.k*q.k), 2*(q.i*q.j-q.k*q.r), 2*(q.i*q.k+q.j*q.r), Tx,
                                   2*(q.i*q.j+q.k*q.r), 1-2*(q.i*q.i+q.k*q.k), 2*(q.j*q.k-q.i*q.r), Ty,
                                   2*(q.i*q.k-q.j*q.r), 2*(q.j*q.k+q.i*q.r), 1-2*(q.i*q.i+q.j*q.j), Tz,
@@ -229,7 +237,7 @@ void kalUpdate() {    //state update using mag and baro & update covariance
   P = (I-Kbm*Hbm)*P_prior + (I-Kmg*Hmg)*P_prior;
 }
 
-void kalExtrapolate(float dT) {   //extrapolation / prediction function
+void kalExtrapolate() {   //extrapolation / prediction function
   float psi = uGy(0);
   float tht = uGy(1);
   float phi = uGy(2);
@@ -239,8 +247,8 @@ void kalExtrapolate(float dT) {   //extrapolation / prediction function
            dT  ,    0   ,    0   ,         0       ,
            0   ,    dT  ,    0   ,         0       ,
            0   ,    0   ,    dT  ,         0       ,
-           0   ,    0   ,    0   , dT*(cos(phi/2)*cos(tht/2)*cos(psi/2)+sin(phi/2)*sin(tht/2)*sin(psi/2)),
            0   ,    0   ,    0   , dT*(sin(phi/2)*cos(tht/2)*cos(psi/2)-cos(phi/2)*sin(tht/2)*sin(psi/2)),
+           0   ,    0   ,    0   , dT*(cos(phi/2)*cos(tht/2)*cos(psi/2)+sin(phi/2)*sin(tht/2)*sin(psi/2)),
            0   ,    0   ,    0   , dT*(cos(phi/2)*sin(tht/2)*cos(psi/2)+sin(phi/2)*cos(tht/2)*sin(psi/2)),
            0   ,    0   ,    0   , dT*(cos(phi/2)*cos(tht/2)*sin(psi/2)-sin(phi/2)*sin(tht/2)*cos(psi/2))};
   
@@ -264,13 +272,48 @@ void kalExtrapolate(float dT) {   //extrapolation / prediction function
 //   file.write((uint8_t *)&data,sizeof(data)/sizeof(uint8_t));
 // }
 
-void KalmanInit() {   //initialize kalman matrices
+void KalmanFilter() {
+  //extrapolate state, extrapolate uncert, compute gain, update estimate, update uncert
+  kalExtrapolate();
+  HmgCalc(quaternion {x(6),x(7),x(8),x(9)});
+  kalmanGain();
+  kalUpdate();
+}
+
+void KalmanInit() {   //initialize kalman matrices and orientation
   Rmg = { stddev_mg,     0    ,     0     ,
               0    , stddev_mg,     0     ,
               0    ,     0    , stddev_mg };
   Rbm = { stddev_ps };
 
   Hbm = { 0, 0, 1, 0, 0, 0, 0, 0, 0, 0};
+
+  //orientation init
+  IMU.readAccel();
+  aX = IMU.calcAccel(IMU.ax);
+  aY = IMU.calcAccel(IMU.ay);
+  aZ = IMU.calcAccel(IMU.az);
+  IMU.readMag();
+  mag = magCal_soft * BLA::Matrix<3,1> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+  mX = IMU.calcMag(mag(0));
+  mY = IMU.calcMag(mag(1));
+  mZ = IMU.calcMag(mag(2));
+
+  BLA::Matrix<3> gravVect = {aX, aY, aZ};
+  gravVect /= sqrt(aX*aX+aY*aY+aZ*aZ);      //normalize gravity vector
+  float psi = 90.-acosf(gravVect(1));
+  float phi = 90.-acosf(gravVect(2));
+  float theta = 0.;
+  quaternion q;
+  q.r = sin(phi/2)*cos(theta/2)*cos(psi/2)-cos(phi/2)*sin(theta/2)*sin(psi/2);    //convert initial orientation into state quaternion
+  q.i = cos(phi/2)*cos(theta/2)*cos(psi/2)+sin(phi/2)*sin(theta/2)*sin(psi/2);
+  q.j = cos(phi/2)*sin(theta/2)*cos(psi/2)+sin(phi/2)*cos(theta/2)*sin(psi/2);
+  q.k = cos(phi/2)*cos(theta/2)*sin(psi/2)-sin(phi/2)*sin(theta/2)*cos(psi/2);
+
+  //TODO: TRANSFORM MAG TO GLOBAL FRAME (there must be a way to do it without a transformation matrix, just think about it! You got this king)
+
+  x = {0., 0., 0., 0., 0., 0., q.r, q.i, q.j, q.k};   //initial state estimate; position and velocity are zero, and orientation calculated above
+  P.Fill(0.);   //initial covariance error is zero, initial estimate is as close to true state as is reasonable
 }
 void sdInit() {     //initialize SD card and filename
   SD.begin(CS_SD, SPI_FULL_SPEED);
