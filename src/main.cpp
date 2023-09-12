@@ -84,6 +84,12 @@ BLA::Matrix<3,3> magCal_soft = { 0.961, 0.026,-0.024,
                                 -0.024,-0.002, 1.032};
 BLA::Matrix<3,1> mag;
 
+float degToRad(float deg) {
+  return deg*DEG_TO_RAD;
+}
+float radToDeg(float rad) {
+  return rad*RAD_TO_DEG;
+}
 void setup() {
   pinMode(BZR,OUTPUT);
   analogWriteResolution(16);  //set pwm resolution to 16 bit (0-65535)
@@ -209,9 +215,9 @@ void getSensorData() {
   uGy = localToGlobal(BLA::Matrix<4> {gX,gY,gZ,1.}, quaternion {x_prior(6),x_prior(7),x_prior(8),x_prior(9)}, x_prior(0),x_prior(1),x_prior(2)); //gyros meas to global frame
 }
 void HmgCalc(quaternion q) {  //calculate values of the mag obs matrix given state vector quats
-  Hmg = { 0, 0, 0, 0, 0, 0, 0, 0, 0, atan2(2*(q.r*q.k+q.i*q.j),1-2*(q.j*q.j+q.k*q.k)),
-          0, 0, 0, 0, 0, 0, 0, 0, 0,           asin(2*(q.r*q.j-q.i*q.k)),
-          0, 0, 0, 0, 0, 0, 0, 0, 0, atan2(2*(q.r*q.i+q.j*q.k),1-2*(q.i*q.i+q.j*q.j))};
+  Hmg = { 0, 0, 0, 0, 0, 0, 0, 0, 0, radToDeg(atan2(2*(q.r*q.k+q.i*q.j),1-2*(q.j*q.j+q.k*q.k))),
+          0, 0, 0, 0, 0, 0, 0, 0, 0,           radToDeg(asin(2*(q.r*q.j-q.i*q.k))),
+          0, 0, 0, 0, 0, 0, 0, 0, 0, radToDeg(atan2(2*(q.r*q.i+q.j*q.k),1-2*(q.i*q.i+q.j*q.j)))};
 }
 void kalmanGain() {
   /* magnetometer section */
@@ -225,9 +231,9 @@ void kalUpdate() {    //state update using mag and baro & update covariance
   x = x_prior;
   if(magAvail) {
     float magMag = sqrtf(mX*mX+mY*mY+mZ*mZ);    //magnetometer magnitude
-    zMg(0) = acosf(mX/magMag);
-    zMg(1) = acosf(mY/magMag);
-    zMg(2) = acosf(mZ/magMag);
+    zMg(0) = radToDeg(acosf(mX/magMag));
+    zMg(1) = radToDeg(acosf(mY/magMag));
+    zMg(2) = radToDeg(acosf(mZ/magMag));
     x += Kmg*(zMg - Hmg*x_prior);
   }
   if(baroAvail) {
@@ -241,9 +247,9 @@ void kalUpdate() {    //state update using mag and baro & update covariance
   P = (I-Kbm*Hbm)*P_prior + (I-Kmg*Hmg)*P_prior;
 }
 void kalExtrapolate() {   //extrapolation / prediction function
-  float psi = uGy(0);
-  float tht = uGy(1);
-  float phi = uGy(2);
+  float psi = degToRad(uGy(0));
+  float tht = degToRad(uGy(1));
+  float phi = degToRad(uGy(2));
   G = { dT*dT/2,    0   ,    0   ,         0       ,
            0   , dT*dT/2,    0   ,         0       ,
            0   ,    0   , dT*dT/2,         0       ,
@@ -275,9 +281,9 @@ void kalExtrapolate() {   //extrapolation / prediction function
 // }
 BLA::Matrix<3> axisAngles() {
   quaternion q = {x(6),x(7),x(8),x(9)};
-  float psi = atan2(2*(q.r*q.k+q.i*q.j),1-2*(q.j*q.j+q.k*q.k));
-  float theta = asin(2*(q.r*q.j-q.i*q.k));
-  float phi = atan2(2*(q.r*q.i+q.j*q.k),1-2*(q.i*q.i+q.j*q.j));
+  float psi = radToDeg(atan2(2*(q.r*q.k+q.i*q.j),1-2*(q.j*q.j+q.k*q.k)));
+  float theta = radToDeg(asin(2*(q.r*q.j-q.i*q.k)));
+  float phi = radToDeg(atan2(2*(q.r*q.i+q.j*q.k),1-2*(q.i*q.i+q.j*q.j)));
 
   return {psi,theta,phi};
 }
@@ -311,8 +317,8 @@ void KalmanInit() {   //initialize kalman matrices and orientation
 
   BLA::Matrix<3> gravVect = {aX, aY, aZ};
   gravVect /= sqrt(aX*aX+aY*aY+aZ*aZ);      //normalize gravity vector
-  float psi = 90.-acosf(gravVect(1));
-  float phi = 90.-acosf(gravVect(2));
+  float psi = 90.-acosf(degToRad(gravVect(1)));
+  float phi = 90.-acosf(degToRad(gravVect(2)));
   float theta = 0.;
   quaternion q;
   q.r = sin(phi/2)*cos(theta/2)*cos(psi/2)-cos(phi/2)*sin(theta/2)*sin(psi/2);    //convert initial orientation into state quaternion
