@@ -8,5 +8,6 @@
         "tuple": "cpp",
         "type_traits": "cpp",
         "utility": "cpp"
-    }
+    },
+    "cmake.sourceDirectory": "C:/Users/Arjun/Documents/GitHub/WINTER-Flight-Code/.pio/libdeps/genericSTM32F446RE/Adafruit BusIO"
 }

@@ -20,7 +20,6 @@
 */
 
 #include "MS5xxx.h"
-#include <math.h>
 
 MS5xxx::MS5xxx(TwoWire *aWire) : i2caddr(I2C_MS5607) {
 	_Wire=aWire;
@@ -59,7 +58,6 @@ void MS5xxx::ReadProm() {
 	    C[i] = (c << 8);
 	    c = _Wire->read();
 	    C[i] += c;
-	    _Wire->endTransmission(true);
 	}
 	
 }
@@ -119,14 +117,14 @@ unsigned long MS5xxx::read_adc(unsigned char aCMD)
   unsigned long value=0;
   unsigned long c=0;
   
-//   send_cmd(MS5xxx_CMD_ADC_CONV+aCMD); // start DAQ and conversion of ADC data
+  send_cmd(MS5xxx_CMD_ADC_CONV+aCMD); // start DAQ and conversion of ADC data
   switch (aCMD & 0x0f)
   {
     case MS5xxx_CMD_ADC_256 : delayMicroseconds(900);
     break;
-    case MS5xxx_CMD_ADC_512 : delayMicroseconds(1100);
+    case MS5xxx_CMD_ADC_512 : delay(3);
     break;
-    case MS5xxx_CMD_ADC_1024: delayMicroseconds(1);
+    case MS5xxx_CMD_ADC_1024: delay(4);
     break;
     case MS5xxx_CMD_ADC_2048: delay(6);
     break;
@@ -141,7 +139,6 @@ unsigned long MS5xxx::read_adc(unsigned char aCMD)
   value += (c<<8);
   c = _Wire->read();
   value += c;
-  _Wire->endTransmission(true);
  
   return value;
 }
@@ -149,12 +146,12 @@ unsigned long MS5xxx::read_adc(unsigned char aCMD)
 void MS5xxx::Readout(unsigned long D1, unsigned long D2) {
 	//unsigned long D1=0, D2=0;
 	
-	float dT;
-	float OFF;
-	float SENS;
+	double dT;
+	double OFF;
+	double SENS;
 
-	//D2=read_adc(MS5xxx_CMD_ADC_D2+MS5xxx_CMD_ADC_1024);
-	//D1=read_adc(MS5xxx_CMD_ADC_D1+MS5xxx_CMD_ADC_1024);
+	// D2=read_adc(MS5xxx_CMD_ADC_D2+MS5xxx_CMD_ADC_4096);
+	// D1=read_adc(MS5xxx_CMD_ADC_D1+MS5xxx_CMD_ADC_4096);
 
 	// calculate 1st order pressure and temperature (MS5607 1st order algorithm)
 	dT=D2-C[5]*pow(2,8);
@@ -164,15 +161,14 @@ void MS5xxx::Readout(unsigned long D1, unsigned long D2) {
 	P=(((D1*SENS)/pow(2,21)-OFF)/pow(2,15));
 	 
 	// perform higher order corrections
-	float T2=0., OFF2=0., SENS2=0.;
+	double T2=0., OFF2=0., SENS2=0.;
 	if(TEMP<2000) {
-    float T2K = TEMP-2000; float T15k = TEMP + 1500;
 	  T2=dT*dT/pow(2,31);
-	  OFF2=61*(T2K)*(T2K)/pow(2,4);
-	  SENS2=2*(T2K)*(T2K);
+	  OFF2=61*(TEMP-2000)*(TEMP-2000)/pow(2,4);
+	  SENS2=2*(TEMP-2000)*(TEMP-2000);
 	  if(TEMP<-1500) {
-	    OFF2+=15*(T15k)*(T15k);
-	    SENS2+=8*(T15k)*(T15k);
+	    OFF2+=15*(TEMP+1500)*(TEMP+1500);
+	    SENS2+=8*(TEMP+1500)*(TEMP+1500);
 	  }
 	}
 	  

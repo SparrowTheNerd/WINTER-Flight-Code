@@ -51,15 +51,13 @@ class MS5xxx
 	char i2caddr;
 	TwoWire *_Wire;
 	
-	//unsigned char send_cmd(unsigned char aCMD);
 	unsigned long read_adc(unsigned char aCMD);
 	
   public:
     MS5xxx(TwoWire *aWire);
     void setI2Caddr(char aAddr);
     byte connect();
-    byte send_cmd(byte aCMD);
-    
+    unsigned char send_cmd(unsigned char aCMD);
     void ReadProm();
     void Readout(unsigned long D1, unsigned long D2);
 

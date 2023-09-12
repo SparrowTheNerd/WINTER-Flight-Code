@@ -46,8 +46,7 @@ BLA::Matrix<3,3> Rmg;   //mag meas covar matrix
 BLA::Matrix<1,1> Rbm;   //baro meas covar matrix
 BLA::Matrix<10,3> Kmg;  //mag kalman gain
 BLA::Matrix<10>   Kbm;  //baro kalman gain
-
-
+BLA::Matrix<3> mgBase;  //initial magnetometer vector, for comparing against
 
 Adafruit_ADXL375 IMU_HighG = Adafruit_ADXL375(1,&Wire);
 MS5xxx barometer(&Wire);
@@ -60,16 +59,19 @@ void barometerInit();
 void getSensorData();
 void KalmanInit();
 void KalmanFilter();
+void baroData();
+BLA::Matrix<3> axisAngles();
 uint32_t Time, timeBaro;
 bool magAvail;  //is there mag data available?
-bool baroAvail; //is there baro data available?
+bool baroAvail = false; //is there baro data available?
 char fileName[] = "FLIGHTDATA00.bin";
 float dT;
 float angX, angY, angZ;
-float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
-// struct sensData {   
-//   float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
-// } data;
+float gX, gY, gZ, aX, aY, aZ, mX, mY, mZ;
+double prs, tmp;
+struct sensData {   
+  float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
+} data;
 
 struct quaternion {
   float i, j, k;    //imaginary values
@@ -88,88 +90,97 @@ void setup() {
   analogWriteFrequency(1000); //set pwm frequency to 1KHz
 
   SerialUSB.begin(); //start serial port
-  while(!SerialUSB);
+  //while(!SerialUSB);
 
   Wire.begin(uint32_t(PB9_ALT0),uint32_t(PB8_ALT0));
 
   imuInit();    //set IMU settings
-  barometerInit();
+  //barometerInit();
+  barometer.connect();
+  barometer.ReadProm();
   
-  IMU_HighG.begin();    //highG needs to be looked at, values are weird
-  Wire.setClock(400000);
+  // IMU_HighG.begin();    //highG needs to be looked at, values are weird
+  //Wire.setClock(400000);
 
   KalmanInit();
 
-  Time = micros();
   timeBaro = micros();
+  Time = micros();
 }
 
+int counter = 0;
 void loop() {
   dT = (float)(micros()-Time)/1000000.;
   Time = micros();
   getSensorData();
+  KalmanFilter();
 
-  //KALMAN HERE
-
+  if(counter == 50) {
+    BLA::Matrix<3> angles = axisAngles();
+    Serial.print("X: "); Serial.print(x(0)); Serial.print("  Y: "); Serial.print(x(1)); Serial.print("  Z: "); Serial.print(x(2)); Serial.print(" Xs: "); Serial.print(x(3)); Serial.print("  Y: "); Serial.print(angles(0));
+    Serial.print("  R: "); Serial.print(angles(1)); Serial.print("  P: "); Serial.println(angles(2));
+    counter = 0;
+  }
+  counter += 1;
   magAvail = false;
   baroAvail = false;    //reset sensor availability for next loop
 }
 
 float altCalc() {
-  return (288.15/-0.0065)*(pow(prs/101325.,0.1902632)-1);
+  return (288.15/-0.0065)*(pow(prs/101325.,0.1902632)-1.);
+}
+BLA::Matrix<4> localToGlobal(BLA::Matrix<4> meas, quaternion q, float Tx, float Ty, float Tz) {     //use a-priori state to transform meas from rkt to global
+  BLA::Matrix<4,4> transform = {  1-2*(q.i*q.i+q.k*q.k), 2*(q.i*q.j-q.k*q.r), 2*(q.i*q.k+q.j*q.r), Tx,
+                                  2*(q.i*q.j+q.k*q.r), 1-2*(q.i*q.i+q.k*q.k), 2*(q.j*q.k-q.i*q.r), Ty,
+                                  2*(q.i*q.k-q.j*q.r), 2*(q.j*q.k+q.i*q.r), 1-2*(q.i*q.i+q.j*q.j), Tz,
+                                              0      ,           0        ,         0            ,  1};
+  return transform*meas;
 }
 
 int baroStep = 0;
 unsigned long d1, d2;
-void baroData() {     //rewritten function from MS5xxx lib so that baro low pollrate data can be gathered around IMU data (uses IMU proc time as delay)
+void baroData() {
   unsigned long value=0;
   unsigned long c=0;
-  switch (baroStep) {
-  case 0:
-    if ((micros() - timeBaro) >= 25000) {   //40hz sample rate
-      barometer.send_cmd(MS5xxx_CMD_ADC_CONV+MS5xxx_CMD_ADC_D2+MS5xxx_CMD_ADC_1024);
-      baroStep = 1;
-      timeBaro = micros();
-    }
-    break;
-  case 1:
-    barometer.send_cmd(MS5xxx_CMD_ADC_READ); // read out values
-    Wire.requestFrom(0x76, 3);
-    c = Wire.read();
-    value = (c<<16);
-    c = Wire.read();
-    value += (c<<8);
-    c = Wire.read();
-    value += c;
-    Wire.endTransmission(true);
-    d2 = value;
-    baroStep = 2;
-    break;
-  case 2:
-    barometer.send_cmd(MS5xxx_CMD_ADC_CONV+MS5xxx_CMD_ADC_D1+MS5xxx_CMD_ADC_1024);
-    baroStep = 3;
-    break;
-  case 3:
-    barometer.send_cmd(MS5xxx_CMD_ADC_READ); // read out values
-    Wire.requestFrom(0x76, 3);
-    c = Wire.read();
-    value = (c<<16);
-    c = Wire.read();
-    value += (c<<8);
-    c = Wire.read();
-    value += c;
-    Wire.endTransmission(true);
-    d1 = value;
-    baroStep = 4;
-    break;
-  case 4:
-    barometer.Readout(d1,d2);
-    prs = barometer.GetPres();
-    tmp = barometer.GetTemp();
-    baroStep = 0;
-    zBm = altCalc();
-    baroAvail = true;
-    break;
+  switch(baroStep) {
+    case 0:
+      if (micros()-timeBaro >= 25000) {
+        barometer.send_cmd(MS5xxx_CMD_ADC_CONV+MS5xxx_CMD_ADC_D2+MS5xxx_CMD_ADC_1024);
+        baroStep = 1;
+        timeBaro = micros();
+      }
+      break;
+    case 1:
+      if(micros()-timeBaro >= 4000) {
+        barometer.send_cmd(MS5xxx_CMD_ADC_READ); // read out values
+        Wire.requestFrom(0x76, 3);
+        c = Wire.read();
+        value = (c<<16);
+        c = Wire.read();
+        value += (c<<8);
+        c = Wire.read();
+        value += c;
+        d2 = value;
+        barometer.send_cmd(MS5xxx_CMD_ADC_CONV+MS5xxx_CMD_ADC_D1+MS5xxx_CMD_ADC_1024);
+        baroStep = 2;
+      }
+      break;
+    case 2:
+      if (micros()-timeBaro >= 8000) {
+        barometer.send_cmd(MS5xxx_CMD_ADC_READ); // read out values
+        Wire.requestFrom(0x76, 3);
+        c = Wire.read();
+        value = (c<<16);
+        c = Wire.read();
+        value += (c<<8);
+        c = Wire.read();
+        value += c;
+        d1 = value;
+        barometer.Readout(d1,d2);
+        baroStep = 0;
+        zBm = altCalc();
+        baroAvail = true;
+      }
   }
 }
 void getSensorData() {
@@ -182,9 +193,9 @@ void getSensorData() {
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
-    aX = IMU.calcAccel(IMU.ax);
-    aY = IMU.calcAccel(IMU.ay);
-    aZ = IMU.calcAccel(IMU.az);
+    aX = IMU.calcAccel(IMU.ax)*9.81;
+    aY = IMU.calcAccel(IMU.ay)*9.81;
+    aZ = IMU.calcAccel(IMU.az)*9.81;
   }
   if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
     IMU.readMag();
@@ -197,21 +208,11 @@ void getSensorData() {
   uXl = localToGlobal(BLA::Matrix<4> {aX,aY,aZ,1.}, quaternion {x_prior(6),x_prior(7),x_prior(8),x_prior(9)}, x_prior(0),x_prior(1),x_prior(2)); //accel meas to global frame
   uGy = localToGlobal(BLA::Matrix<4> {gX,gY,gZ,1.}, quaternion {x_prior(6),x_prior(7),x_prior(8),x_prior(9)}, x_prior(0),x_prior(1),x_prior(2)); //gyros meas to global frame
 }
-
-BLA::Matrix<4> localToGlobal(BLA::Matrix<4> meas, quaternion q, float Tx, float Ty, float Tz) {     //use a-priori state to transform meas from rkt to global
-  BLA::Matrix<4,4> transform = {  1-2*(q.i*q.i+q.k*q.k), 2*(q.i*q.j-q.k*q.r), 2*(q.i*q.k+q.j*q.r), Tx,
-                                  2*(q.i*q.j+q.k*q.r), 1-2*(q.i*q.i+q.k*q.k), 2*(q.j*q.k-q.i*q.r), Ty,
-                                  2*(q.i*q.k-q.j*q.r), 2*(q.j*q.k+q.i*q.r), 1-2*(q.i*q.i+q.j*q.j), Tz,
-                                              0      ,           0        ,         0            ,  1};
-  return transform*meas;
-}
-
 void HmgCalc(quaternion q) {  //calculate values of the mag obs matrix given state vector quats
   Hmg = { 0, 0, 0, 0, 0, 0, 0, 0, 0, atan2(2*(q.r*q.k+q.i*q.j),1-2*(q.j*q.j+q.k*q.k)),
           0, 0, 0, 0, 0, 0, 0, 0, 0,           asin(2*(q.r*q.j-q.i*q.k)),
           0, 0, 0, 0, 0, 0, 0, 0, 0, atan2(2*(q.r*q.i+q.j*q.k),1-2*(q.i*q.i+q.j*q.j))};
 }
-
 void kalmanGain() {
   /* magnetometer section */
   BLA::Matrix<10,3> Hmg_T = ~Hmg;
@@ -220,10 +221,13 @@ void kalmanGain() {
   BLA::Matrix<10> Hbm_T = ~Hbm;
   Kbm = P_prior*Hbm_T*Inverse(Hbm*P_prior*Hbm_T+Rbm);
 }
-
 void kalUpdate() {    //state update using mag and baro & update covariance
   x = x_prior;
   if(magAvail) {
+    float magMag = sqrtf(mX*mX+mY*mY+mZ*mZ);    //magnetometer magnitude
+    zMg(0) = acosf(mX/magMag);
+    zMg(1) = acosf(mY/magMag);
+    zMg(2) = acosf(mZ/magMag);
     x += Kmg*(zMg - Hmg*x_prior);
   }
   if(baroAvail) {
@@ -236,7 +240,6 @@ void kalUpdate() {    //state update using mag and baro & update covariance
   }
   P = (I-Kbm*Hbm)*P_prior + (I-Kmg*Hmg)*P_prior;
 }
-
 void kalExtrapolate() {   //extrapolation / prediction function
   float psi = uGy(0);
   float tht = uGy(1);
@@ -264,18 +267,24 @@ void kalExtrapolate() {   //extrapolation / prediction function
         0, 0, 0,  0,  0,  0, 0, 0, 0, 1};
   
   x_prior = (F*x + G*uXl);
-
   P_prior = F*P*~F;
 }
 
 // void writeToSD() {
 //   file.write((uint8_t *)&data,sizeof(data)/sizeof(uint8_t));
 // }
+BLA::Matrix<3> axisAngles() {
+  quaternion q = {x(6),x(7),x(8),x(9)};
+  float psi = atan2(2*(q.r*q.k+q.i*q.j),1-2*(q.j*q.j+q.k*q.k));
+  float theta = asin(2*(q.r*q.j-q.i*q.k));
+  float phi = atan2(2*(q.r*q.i+q.j*q.k),1-2*(q.i*q.i+q.j*q.j));
 
+  return {psi,theta,phi};
+}
 void KalmanFilter() {
   //extrapolate state, extrapolate uncert, compute gain, update estimate, update uncert
   kalExtrapolate();
-  HmgCalc(quaternion {x(6),x(7),x(8),x(9)});
+  HmgCalc(quaternion {x_prior(6),x_prior(7),x_prior(8),x_prior(9)});  //use x_n,n-1 to 
   kalmanGain();
   kalUpdate();
 }
@@ -286,7 +295,7 @@ void KalmanInit() {   //initialize kalman matrices and orientation
               0    ,     0    , stddev_mg };
   Rbm = { stddev_ps };
 
-  Hbm = { 0, 0, 1, 0, 0, 0, 0, 0, 0, 0};
+  Hbm = { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
   //orientation init
   IMU.readAccel();
@@ -298,6 +307,7 @@ void KalmanInit() {   //initialize kalman matrices and orientation
   mX = IMU.calcMag(mag(0));
   mY = IMU.calcMag(mag(1));
   mZ = IMU.calcMag(mag(2));
+  mgBase = {mX,mY,mZ};
 
   BLA::Matrix<3> gravVect = {aX, aY, aZ};
   gravVect /= sqrt(aX*aX+aY*aY+aZ*aZ);      //normalize gravity vector
@@ -309,8 +319,6 @@ void KalmanInit() {   //initialize kalman matrices and orientation
   q.i = cos(phi/2)*cos(theta/2)*cos(psi/2)+sin(phi/2)*sin(theta/2)*sin(psi/2);
   q.j = cos(phi/2)*sin(theta/2)*cos(psi/2)+sin(phi/2)*cos(theta/2)*sin(psi/2);
   q.k = cos(phi/2)*cos(theta/2)*sin(psi/2)-sin(phi/2)*sin(theta/2)*cos(psi/2);
-
-  //TODO: TRANSFORM MAG TO GLOBAL FRAME (there must be a way to do it without a transformation matrix, just think about it! You got this king)
 
   x = {0., 0., 0., 0., 0., 0., q.r, q.i, q.j, q.k};   //initial state estimate; position and velocity are zero, and orientation calculated above
   P.Fill(0.);   //initial covariance error is zero, initial estimate is as close to true state as is reasonable
@@ -327,7 +335,7 @@ void sdInit() {     //initialize SD card and filename
 }
 void imuInit() {    //initialize 9DoF IMU settings
   IMU.settings.gyro.enabled = true;
-  IMU.settings.gyro.scale = 500; //500dps
+  IMU.settings.gyro.scale = 2000; //2000dps
   IMU.settings.gyro.sampleRate = 5; //476hz
   IMU.settings.gyro.lowPowerEnable = false;
   IMU.settings.gyro.HPFEnable = false;
@@ -348,13 +356,14 @@ void imuInit() {    //initialize 9DoF IMU settings
 void barometerInit() {
   barometer.connect();
   barometer.ReadProm();
-  delay(100); //make sure enough time has elapsed that all sensors will have an available measurement
-  for(int i = 0; i<4; i++) {
+  delay(2000); //make sure enough time has elapsed that all sensors will have an available measurement
+  while(!baroAvail) {
     baroData(); //get an initial baro measurement
-    delay(100);
   }
 }
-void SystemClock_Config(void) {   //set up STM32 PLL config. Code generated by STM32CubeMX software
+
+void SystemClock_Config(void)
+{
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
@@ -395,15 +404,15 @@ void SystemClock_Config(void) {   //set up STM32 PLL config. Code generated by S
   }
 }
 
-void magCal() {   //for use with MotionCal software
-  Serial.print("Raw:"); //Serial.print("0,0,0,0,0,0,");
-  Serial.print((IMU.ax)/8); Serial.print(",");
-  Serial.print((IMU.ay)/8); Serial.print(",");
-  Serial.print((IMU.az)/8); Serial.print(",");
-  Serial.print((IMU.gx-140)/8); Serial.print(",");
-  Serial.print((IMU.gy-95)/8); Serial.print(",");
-  Serial.print((IMU.gz-70)/8); Serial.print(",");
-  Serial.print((IMU.mx)/8); Serial.print(",");
-  Serial.print((IMU.my)/8); Serial.print(",");
-  Serial.print((IMU.mz)/8); Serial.println("");
-}
+// void magCal() {   //for use with MotionCal software
+//   Serial.print("Raw:"); //Serial.print("0,0,0,0,0,0,");
+//   Serial.print((IMU.ax)/8); Serial.print(",");
+//   Serial.print((IMU.ay)/8); Serial.print(",");
+//   Serial.print((IMU.az)/8); Serial.print(",");
+//   Serial.print((IMU.gx-140)/8); Serial.print(",");
+//   Serial.print((IMU.gy-95)/8); Serial.print(",");
+//   Serial.print((IMU.gz-70)/8); Serial.print(",");
+//   Serial.print((IMU.mx)/8); Serial.print(",");
+//   Serial.print((IMU.my)/8); Serial.print(",");
+//   Serial.print((IMU.mz)/8); Serial.println("");
+// }
