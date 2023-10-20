@@ -11,6 +11,9 @@
 #include <BasicLinearAlgebra.h>
 //using namespace BLA;
 
+#include "Kalman/RocketKalman.h"
+RocketKalman * kalman = new RocketKalman(50);
+
 #define BZR     PC8
 #define CS_SD   PC0
 #define gXOfst 1.301940492
@@ -22,7 +25,7 @@
 //measurement stddevs
 #define stddev_xl   0.180   //180 milli G's from LSM9DS1 datasheet
 #define stddev_gy   2.0     //2 deg/s, roughly measured
-#define stddev_mg   1.0     //1 Gauss from LSM9DS1 datasheet, will improve post calibration
+#define stddev_mg   0.1     //1 Gauss from LSM9DS1 datasheet, will improve post calibration
 #define stddev_ps   10.    //400Pa, around 10ft from MS5607 datasheet
 //model stddev (~1/inertia)
 // #define m_pos       0.1
@@ -68,14 +71,15 @@ char fileName[] = "FLIGHTDATA00.bin";
 float dT;
 float angX, angY, angZ;
 float gX, gY, gZ, aX, aY, aZ, mX, mY, mZ;
+float altInit = 0.;
 double prs, tmp;
 struct sensData {   
   float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
 } data;
 
 struct quaternion {
-  float i, j, k;    //imaginary values
   float r;          //real value
+  float i, j, k;    //imaginary values
 };
 
 BLA::Matrix<3,1> magCal_hard = {-19.03*8,28.14*8,-66.63*8}; //hard and soft iron calibrations
@@ -96,7 +100,7 @@ void setup() {
   analogWriteFrequency(1000); //set pwm frequency to 1KHz
 
   SerialUSB.begin(); //start serial port
-  //while(!SerialUSB);
+  while(!SerialUSB);
 
   Wire.begin(uint32_t(PB9_ALT0),uint32_t(PB8_ALT0));
 
@@ -106,12 +110,13 @@ void setup() {
   barometer.ReadProm();
   
   // IMU_HighG.begin();    //highG needs to be looked at, values are weird
-  //Wire.setClock(400000);
+  Wire.setClock(400000);
 
   KalmanInit();
 
   timeBaro = micros();
   Time = micros();
+  delay(1);
 }
 
 int counter = 0;
@@ -121,25 +126,25 @@ void loop() {
   getSensorData();
   KalmanFilter();
 
-  if(counter == 50) {
-    BLA::Matrix<3> angles = axisAngles();
-    Serial.print("X: "); Serial.print(x(0)); Serial.print("  Y: "); Serial.print(x(1)); Serial.print("  Z: "); Serial.print(x(2)); Serial.print(" Xs: "); Serial.print(x(3)); Serial.print("  Y: "); Serial.print(angles(0));
-    Serial.print("  R: "); Serial.print(angles(1)); Serial.print("  P: "); Serial.println(angles(2));
-    counter = 0;
-  }
-  counter += 1;
+  // if(counter == 50) {
+  //   BLA::Matrix<3> angles = axisAngles();
+  //   Serial.print("X: "); Serial.print(x(0)); Serial.print("  Y: "); Serial.print(x(1)); Serial.print("  Z: "); Serial.print(x(2)); Serial.print(" Xs: "); Serial.print(x(3)); Serial.print("  Y: "); Serial.print(angles(0),5);
+  //   Serial.print("  R: "); Serial.print(angles(1),5); Serial.print("  P: "); Serial.println(angles(2),5);
+  //   counter = 0;
+  // }
+  // counter += 1;
   magAvail = false;
   baroAvail = false;    //reset sensor availability for next loop
 }
 
 float altCalc() {
-  return (288.15/-0.0065)*(pow(prs/101325.,0.1902632)-1.);
+  return ((288.15/-0.0065)*(pow(prs/101325.,0.1902632)-1.))-altInit;
 }
-BLA::Matrix<4> localToGlobal(BLA::Matrix<4> meas, quaternion q, float Tx, float Ty, float Tz) {     //use a-priori state to transform meas from rkt to global
-  BLA::Matrix<4,4> transform = {  1-2*(q.i*q.i+q.k*q.k), 2*(q.i*q.j-q.k*q.r), 2*(q.i*q.k+q.j*q.r), Tx,
-                                  2*(q.i*q.j+q.k*q.r), 1-2*(q.i*q.i+q.k*q.k), 2*(q.j*q.k-q.i*q.r), Ty,
-                                  2*(q.i*q.k-q.j*q.r), 2*(q.j*q.k+q.i*q.r), 1-2*(q.i*q.i+q.j*q.j), Tz,
-                                              0      ,           0        ,         0            ,  1};
+BLA::Matrix<4> localToGlobal(BLA::Matrix<4> meas, quaternion q) {     //use a-priori state to transform meas from rkt to global
+  BLA::Matrix<4,4> transform = {  1.-2.*(q.i*q.i+q.k*q.k), 2.*(q.i*q.j-q.k*q.r), 2.*(q.i*q.k+q.j*q.r),  0.,
+                                  2.*(q.i*q.j+q.k*q.r), 1.-2.*(q.i*q.i+q.k*q.k), 2.*(q.j*q.k-q.i*q.r),  0.,
+                                  2.*(q.i*q.k-q.j*q.r), 2.*(q.j*q.k+q.i*q.r), 1.-2.*(q.i*q.i+q.j*q.j),  0.,
+                                              0.      ,           0.        ,         0.            ,   1.};
   return transform*meas;
 }
 
@@ -193,15 +198,15 @@ void getSensorData() {
   baroData();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
-    gX = IMU.calcGyro(IMU.gx) - gXOfst;
-    gY = IMU.calcGyro(IMU.gy) - gYOfst;
-    gZ = IMU.calcGyro(IMU.gz) - gZOfst;
+    gX = degToRad(IMU.calcGyro(IMU.gx) - gXOfst);
+    gY = degToRad(IMU.calcGyro(IMU.gy) - gYOfst);
+    gZ = degToRad(IMU.calcGyro(IMU.gz) - gZOfst);
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
-    aX = IMU.calcAccel(IMU.ax)*9.81;
-    aY = IMU.calcAccel(IMU.ay)*9.81;
-    aZ = IMU.calcAccel(IMU.az)*9.81;
+    aX = IMU.calcAccel(IMU.ax)*9.8066;
+    aY = IMU.calcAccel(IMU.ay)*9.8066;
+    aZ = IMU.calcAccel(IMU.az)*9.8066;
   }
   if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
     IMU.readMag();
@@ -211,13 +216,17 @@ void getSensorData() {
     mZ = IMU.calcMag(mag(2));
     magAvail = true;
   }
-  uXl = localToGlobal(BLA::Matrix<4> {aX,aY,aZ,1.}, quaternion {x_prior(6),x_prior(7),x_prior(8),x_prior(9)}, x_prior(0),x_prior(1),x_prior(2)); //accel meas to global frame
-  uGy = localToGlobal(BLA::Matrix<4> {gX,gY,gZ,1.}, quaternion {x_prior(6),x_prior(7),x_prior(8),x_prior(9)}, x_prior(0),x_prior(1),x_prior(2)); //gyros meas to global frame
+  //Serial.print(x(6),5); Serial.print(", "); Serial.print(x(7),5); Serial.print(", "); Serial.print(x(8),5); Serial.print(", "); Serial.println(x(9),5);
+  uXl = localToGlobal(BLA::Matrix<4> {aX,aY,aZ,1.}, quaternion {x(6),x(7),x(8),x(9)}); //accel meas to global frame
+  uGy = localToGlobal(BLA::Matrix<4> {gX,gY,gZ,1.}, quaternion {x(6),x(7),x(8),x(9)}); //gyros meas to global frame
+  //uXl(0) -= 9.8066; //subtract gravity
+  Serial << uXl;
+  Serial.println(" ");
 }
 void HmgCalc(quaternion q) {  //calculate values of the mag obs matrix given state vector quats
-  Hmg = { 0, 0, 0, 0, 0, 0, 0, 0, 0, radToDeg(atan2(2*(q.r*q.k+q.i*q.j),1-2*(q.j*q.j+q.k*q.k))),
+  Hmg = { 0, 0, 0, 0, 0, 0, 0, 0, 0, radToDeg(atan2(2*(q.r*q.i+q.j*q.k),1-2*(q.i*q.i+q.j*q.j))),
           0, 0, 0, 0, 0, 0, 0, 0, 0,           radToDeg(asin(2*(q.r*q.j-q.i*q.k))),
-          0, 0, 0, 0, 0, 0, 0, 0, 0, radToDeg(atan2(2*(q.r*q.i+q.j*q.k),1-2*(q.i*q.i+q.j*q.j)))};
+          0, 0, 0, 0, 0, 0, 0, 0, 0, radToDeg(atan2(2*(q.r*q.k+q.i*q.j),1-2*(q.j*q.j+q.k*q.k)))};
 }
 void kalmanGain() {
   /* magnetometer section */
@@ -231,35 +240,36 @@ void kalUpdate() {    //state update using mag and baro & update covariance
   x = x_prior;
   if(magAvail) {
     float magMag = sqrtf(mX*mX+mY*mY+mZ*mZ);    //magnetometer magnitude
-    zMg(0) = radToDeg(acosf(mX/magMag));
-    zMg(1) = radToDeg(acosf(mY/magMag));
-    zMg(2) = radToDeg(acosf(mZ/magMag));
+    zMg(0) = (acos(mX/magMag)-acos(mgBase(0)));
+    zMg(1) = (acos(mY/magMag)-acos(mgBase(1)));
+    zMg(2) = (acos(mZ/magMag)-acos(mgBase(2)));
     x += Kmg*(zMg - Hmg*x_prior);
   }
   if(baroAvail) {
     x += Kbm*(zBm - Hbm*x_prior);
   }
-  
+
   BLA::Matrix<10,10> I; I.Fill(0.);
   for(int i=0; i<10; i++) {   //identity matrix
     I(i,i) = 1.;
   }
-  P = (I-Kbm*Hbm)*P_prior + (I-Kmg*Hmg)*P_prior;
+  P = (I-Kbm*Hbm)*P_prior*~(I-Kbm*Hbm) + Kbm*Rbm*~Kbm;
+  P+= (I-Kmg*Hmg)*P_prior*~(I-Kmg*Hmg) + Kmg*Rmg*~Kmg;
 }
 void kalExtrapolate() {   //extrapolation / prediction function
-  float psi = degToRad(uGy(0));
-  float tht = degToRad(uGy(1));
-  float phi = degToRad(uGy(2));
-  G = { dT*dT/2,    0   ,    0   ,         0       ,
-           0   , dT*dT/2,    0   ,         0       ,
-           0   ,    0   , dT*dT/2,         0       ,
-           dT  ,    0   ,    0   ,         0       ,
-           0   ,    dT  ,    0   ,         0       ,
-           0   ,    0   ,    dT  ,         0       ,
-           0   ,    0   ,    0   , dT*(sin(phi/2)*cos(tht/2)*cos(psi/2)-cos(phi/2)*sin(tht/2)*sin(psi/2)),
-           0   ,    0   ,    0   , dT*(cos(phi/2)*cos(tht/2)*cos(psi/2)+sin(phi/2)*sin(tht/2)*sin(psi/2)),
-           0   ,    0   ,    0   , dT*(cos(phi/2)*sin(tht/2)*cos(psi/2)+sin(phi/2)*cos(tht/2)*sin(psi/2)),
-           0   ,    0   ,    0   , dT*(cos(phi/2)*cos(tht/2)*sin(psi/2)-sin(phi/2)*sin(tht/2)*cos(psi/2))};
+  float tht = (uGy(0));
+  float phi = (uGy(1));
+  float psi = (uGy(2));
+  G = { dT*dT/2,    0   ,    0   ,  0 ,
+           0   , dT*dT/2,    0   ,  0 ,
+           0   ,    0   , dT*dT/2,  0 ,
+           dT  ,    0   ,    0   ,  0 ,
+           0   ,    dT  ,    0   ,  0 ,
+           0   ,    0   ,    dT  ,  0 ,
+           0   ,    0   ,    0   ,  0 ,
+           0   ,    0   ,    0   ,  0 ,
+           0   ,    0   ,    0   ,  0 ,
+           0   ,    0   ,    0   ,  0 };
   
   F = { 1, 0, 0, dT,  0,  0, 0, 0, 0, 0,
         0, 1, 0,  0, dT,  0, 0, 0, 0, 0,
@@ -272,8 +282,29 @@ void kalExtrapolate() {   //extrapolation / prediction function
         0, 0, 0,  0,  0,  0, 0, 0, 1, 0,
         0, 0, 0,  0,  0,  0, 0, 0, 0, 1};
   
+  //quaternion angular rates: https://mariogc.com/post/angular-velocity-quaternions/ 
+  BLA::Matrix<4> q0 = {x(6),x(7),x(8),x(9)};
+  BLA::Matrix<4,4> omega = {  0 , psi , -phi, tht,
+                            -psi,  0  ,  tht, phi,
+                             phi, -tht,   0 , psi,
+                            -tht, -phi, -psi,  0 };
+  BLA::Matrix<4> qd = omega * q0 * 0.5f * dT;
+
   x_prior = (F*x + G*uXl);
-  P_prior = F*P*~F;
+  x_prior(6) += qd(0); x_prior(7) += qd(1); x_prior(8) += qd(2); x_prior(9) += qd(3);
+  // Serial << x_prior;
+  // Serial.print('\n');
+  P_prior = F*P*~F; 
+}
+
+void quatNormalize() {
+  float normFact = sqrt(x(6)*x(6) + x(7)*x(7) + x(8)*x(8) + x(9)*x(9));
+  if (normFact > 1.) {
+    x(6) /= normFact;
+    x(7) /= normFact;
+    x(8) /= normFact;
+    x(9) /= normFact;
+  }
 }
 
 // void writeToSD() {
@@ -289,6 +320,7 @@ BLA::Matrix<3> axisAngles() {
 }
 void KalmanFilter() {
   //extrapolate state, extrapolate uncert, compute gain, update estimate, update uncert
+  quatNormalize();
   kalExtrapolate();
   HmgCalc(quaternion {x_prior(6),x_prior(7),x_prior(8),x_prior(9)});  //use x_n,n-1 to 
   kalmanGain();
@@ -315,18 +347,24 @@ void KalmanInit() {   //initialize kalman matrices and orientation
   mZ = IMU.calcMag(mag(2));
   mgBase = {mX,mY,mZ};
 
+  while(!baroAvail) {
+    baroData();
+  }
+  altInit = altCalc();
+
   BLA::Matrix<3> gravVect = {aX, aY, aZ};
   gravVect /= sqrt(aX*aX+aY*aY+aZ*aZ);      //normalize gravity vector
-  float psi = 90.-acosf(degToRad(gravVect(1)));
-  float phi = 90.-acosf(degToRad(gravVect(2)));
+  float psi = M_PI_2-(acos(gravVect(1)));
+  float phi = M_PI_2-(acos(gravVect(2)));
   float theta = 0.;
   quaternion q;
-  q.r = sin(phi/2)*cos(theta/2)*cos(psi/2)-cos(phi/2)*sin(theta/2)*sin(psi/2);    //convert initial orientation into state quaternion
-  q.i = cos(phi/2)*cos(theta/2)*cos(psi/2)+sin(phi/2)*sin(theta/2)*sin(psi/2);
-  q.j = cos(phi/2)*sin(theta/2)*cos(psi/2)+sin(phi/2)*cos(theta/2)*sin(psi/2);
-  q.k = cos(phi/2)*cos(theta/2)*sin(psi/2)-sin(phi/2)*sin(theta/2)*cos(psi/2);
+  q.r = sin(phi/2.)*cos(theta/2.)*cos(psi/2.)-cos(phi/2.)*sin(theta/2.)*sin(psi/2.);    //convert initial orientation into state quaternion
+  q.i = cos(phi/2.)*cos(theta/2.)*cos(psi/2.)+sin(phi/2.)*sin(theta/2.)*sin(psi/2.);
+  q.j = cos(phi/2.)*sin(theta/2.)*cos(psi/2.)+sin(phi/2.)*cos(theta/2.)*sin(psi/2.);
+  q.k = cos(phi/2.)*cos(theta/2.)*sin(psi/2.)-sin(phi/2.)*sin(theta/2.)*cos(psi/2.);
 
   x = {0., 0., 0., 0., 0., 0., q.r, q.i, q.j, q.k};   //initial state estimate; position and velocity are zero, and orientation calculated above
+  //Serial.print(x(6),5); Serial.print(" "); Serial.print(x(7),5); Serial.print(" "); Serial.print(x(8),5); Serial.print(" "); Serial.println(x(9),5);
   P.Fill(0.);   //initial covariance error is zero, initial estimate is as close to true state as is reasonable
 }
 void sdInit() {     //initialize SD card and filename
@@ -362,9 +400,13 @@ void imuInit() {    //initialize 9DoF IMU settings
 void barometerInit() {
   barometer.connect();
   barometer.ReadProm();
+
   delay(2000); //make sure enough time has elapsed that all sensors will have an available measurement
+
   while(!baroAvail) {
+
     baroData(); //get an initial baro measurement
+
   }
 }
 
