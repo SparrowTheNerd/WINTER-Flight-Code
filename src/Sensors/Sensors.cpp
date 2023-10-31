@@ -10,6 +10,7 @@ Sensors::Sensors(Matrix<3> magHard, Matrix<3,3> magSoft, float xOfst, float yOfs
 };
 
 void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and high-G accel
+  IMU.begin(0x6B,0x1E,Wire);
   IMU.settings.gyro.enabled = true;
   IMU.settings.gyro.scale = 2000; //2000dps
   IMU.settings.gyro.sampleRate = 5; //476hz
@@ -26,8 +27,6 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
   IMU.settings.mag.XYPerformance = 3;   //high performance & continuous
   IMU.settings.mag.ZPerformance = 3;
   IMU.settings.mag.operatingMode = 0;
-
-  IMU.begin(0x6B,0x1E,Wire);
 
   IMU_HighG.begin();    //highG needs to be looked at, values are weird
 
@@ -91,13 +90,13 @@ void Sensors::getData() {
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
-    aX = IMU.calcAccel(IMU.ax)*9.8066;
-    aY = IMU.calcAccel(IMU.ay)*9.8066;
-    aZ = IMU.calcAccel(IMU.az)*9.8066;
+    aX = IMU.calcAccel(IMU.ax)*9.80665;
+    aY = IMU.calcAccel(IMU.ay)*9.80665;
+    aZ = IMU.calcAccel(IMU.az)*9.80665;
   }
   if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
     IMU.readMag();
-    Matrix<3,1> mag = magCal_soft * Matrix<3,1> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+    Matrix<3> mag = magCal_soft * Matrix<3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
     mX = IMU.calcMag(mag(0));
     mY = IMU.calcMag(mag(1));
     mZ = IMU.calcMag(mag(2));
@@ -106,5 +105,5 @@ void Sensors::getData() {
 }
 
 float Sensors::altCalc() {
-  return ((288.15/-0.0065)*(pow(prs/101325.,0.1902632)-1.))-altInit;
+  return ((288.15/-0.0065)*(pow(prs/101325.,0.1902632)-1.))-altInit;    //barometric formula solved for altitude in meters
 }

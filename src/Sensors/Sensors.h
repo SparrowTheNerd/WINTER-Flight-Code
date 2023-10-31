@@ -13,7 +13,8 @@ class Sensors{
 		void getData();
 		void baroData();
 		float altCalc();
-		float aX, aY, aZ, gX, gY, gZ, mX, mY, mZ, alt, altInit, xOfst, yOfst, zOfst;
+		float aX, aY, aZ, gX, gY, gZ, mX, mY, mZ, alt, xOfst, yOfst, zOfst;
+		float altInit = 0;
 		uint32_t timeBaro;
 		bool baroAvail;
 		bool magAvail;

@@ -8,9 +8,6 @@
 #define gXOfst 1.301940492
 #define gYOfst 0.859327296
 #define gZOfst 0.528033635
-
-#define Nstate  10      //xyz pos, xyz vel, angle quat
-#define Nobs    10      //xyz accel, xyz gyro, xyz mag, baro
 //measurement stddevs
 #define stddev_xl   (float)0.180   //180 milli G's from LSM9DS1 datasheet
 #define stddev_gy   (float)2.0     //2 deg/s, roughly measured
@@ -25,10 +22,6 @@ bool magAvail;  //is there mag data available?
 bool baroAvail = false; //is there baro data available?
 char fileName[] = "FLIGHTDATA00.bin";
 float dT;
-float angX, angY, angZ;
-float gX, gY, gZ, aX, aY, aZ, mX, mY, mZ;
-float altInit = 0.;
-double prs, tmp;
 struct sensData {   
   float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
 } data;
@@ -47,7 +40,6 @@ float radToDeg(float rad) {
   return rad*RAD_TO_DEG;
 }
 
-
 Sensors sens = Sensors(magCal_hard,magCal_soft, gXOfst, gYOfst, gZOfst);
 KalmanFilter kalman = KalmanFilter(sens);
 
@@ -64,6 +56,7 @@ void setup() {
   sens.init();    //initialize sensors
   sens.timeBaro = micros();
   kalman.init(stddev_mg, stddev_ps);
+  Serial << kalman.x;
   Time = micros();
   delay(1);
 }
@@ -74,15 +67,10 @@ void loop() {
   Time = micros();
   sens.getData();
   kalman.filter(dT);
+  sens.magAvail = false; sens.baroAvail = false;  //reset sensor availability before next loop
+  // Serial << kalman.x;
+  // Serial.println(" ");
 }
-
-// Matrix<4> localToGlobal(Matrix<4> meas, KalmanFilter::quaternion q) {     //use a-priori state to transform meas from rkt to global
-//   Matrix<4,4> transform = {  1.-2.*(q.i*q.i+q.k*q.k), 2.*(q.i*q.j-q.k*q.r), 2.*(q.i*q.k+q.j*q.r),  0.,
-//                                   2.*(q.i*q.j+q.k*q.r), 1.-2.*(q.i*q.i+q.k*q.k), 2.*(q.j*q.k-q.i*q.r),  0.,
-//                                   2.*(q.i*q.k-q.j*q.r), 2.*(q.j*q.k+q.i*q.r), 1.-2.*(q.i*q.i+q.j*q.j),  0.,
-//                                               0.      ,           0.        ,         0.            ,   1.};
-//   return transform*meas;
-// }
 
 // void writeToSD() {
 //   file.write((uint8_t *)&data,sizeof(data)/sizeof(uint8_t));
