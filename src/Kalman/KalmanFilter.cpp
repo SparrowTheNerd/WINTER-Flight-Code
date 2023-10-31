@@ -23,11 +23,11 @@ void KalmanFilter::init(float stddev_mg, float stddev_ps) {
               0    ,     0    , stddev_mg };
   Rbm = { stddev_ps };
 
-  Hbm = { 0, 0, 1, 0, 0, 0, 0, 0, 0, 0};		//measurement matrices
-  Hmg = { 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
-          0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
-          0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-          0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+  Hbm = { 0, 0, 1.f, 0, 0, 0, 0, 0, 0, 0};		//measurement matrices
+  Hmg = { 0, 0, 0, 0, 0, 0, 1.f, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 1.f, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 1.f, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 1.f};
 
   mgBase = {sens.mX,sens.mY,sens.mZ};
   Matrix<3> gravVect = {sens.aX, sens.aY, sens.aZ};
@@ -95,19 +95,20 @@ void KalmanFilter::extrapolate(float dT) {   //extrapolation / prediction functi
            0   ,    0   ,    0   ,  (dT/2)*(q.w*Y - q.x*Z + q.y + q.z*X),
            0   ,    0   ,    0   ,  (dT/2)*(q.w*Z + q.x*Y - q.y*X + q.z)};
   
-  F = { 1, 0, 0, dT,  0,  0, 0, 0, 0, 0,		//state transition matrix (velocity -> position)
-        0, 1, 0,  0, dT,  0, 0, 0, 0, 0,
-        0, 0, 1,  0,  0, dT, 0, 0, 0, 0,
-        0, 0, 0,  1,  0,  0, 0, 0, 0, 0,
-        0, 0, 0,  0,  1,  0, 0, 0, 0, 0,
-        0, 0, 0,  0,  0,  1, 0, 0, 0, 0,
-        0, 0, 0,  0,  0,  0, 0, 0, 0, 0,
-        0, 0, 0,  0,  0,  0, 0, 0, 0, 0,
-        0, 0, 0,  0,  0,  0, 0, 0, 0, 0,
-        0, 0, 0,  0,  0,  0, 0, 0, 0, 0};
+  F = { 1.f, 0, 0, dT,  0,  0, 0, 0, 0, 0,		//state transition matrix (velocity -> position)
+        0, 1.f, 0,  0, dT,  0, 0, 0, 0, 0,
+        0, 0, 1.f,  0,  0, dT, 0, 0, 0, 0,
+        0, 0, 0,  1.f,  0,  0, 0, 0, 0, 0,
+        0, 0, 0,  0,  1.f,  0, 0, 0, 0, 0,
+        0, 0, 0,  0,  0,  1.f, 0, 0, 0, 0,
+        0, 0, 0,  0,  0,  0, 1.f, 0, 0, 0,
+        0, 0, 0,  0,  0,  0, 0, 1.f, 0, 0,
+        0, 0, 0,  0,  0,  0, 0, 0, 1.f, 0,
+        0, 0, 0,  0,  0,  0, 0, 0, 0, 1.f};
 	
 	x_prior = F*x + G*uXl;
   P_prior = F*P*~F; 
+  //Serial.println((dT/2)*(q.w - q.x*X - q.y*Y - q.z*Z),6);
 }
 
 void KalmanFilter::normalize() {
@@ -135,11 +136,9 @@ void KalmanFilter::filter(float dT) {
   normalize();
 	uXl = measTransform(quaternion {x(6),x(7),x(8),x(9)}, Matrix<3> {sens.aX, sens.aY, sens.aZ}) && Matrix<1> {1};	//make 4 entry vector by concatenating (&&) transform with 1
 	uGy = measTransform(quaternion {x(6),x(7),x(8),x(9)}, Matrix<3> {sens.gX, sens.gY, sens.gZ});
-
-	// Serial.println(sens.gX);
-	//Serial.println(" ");
 	extrapolate(dT);
 	gain();
 	update(sens.magAvail, sens.baroAvail);
+  normalize();
   Serial.print(x(6),4); Serial.print(" , "); Serial.print(x(7),4); Serial.print(" , "); Serial.print(x(8),4); Serial.print(" , "); Serial.println(x(9),4);
 }
