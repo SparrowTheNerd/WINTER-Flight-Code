@@ -1,13 +1,9 @@
 #pragma once
 
 #include <Arduino.h>
+#include <BasicLinearAlgebra.h>
 #include "Sensors/Sensors.h"
-#include <eigen-3.4.0/Eigen/Dense>
-#include <eigen-3.4.0/Eigen/Geometry>
-#include <eigen-3.4.0/Eigen/LU>
-
-using Eigen::Matrix;
-using Eigen::Vector;
+using namespace BLA;
 
 class KalmanFilter {
 	public:
@@ -18,27 +14,28 @@ class KalmanFilter {
 		KalmanFilter(Sensors &sens);
 		void init(float stddev_mg, float stddev_ps);
 		void filter(float dt);
-		Vector<float,10> x; //x_n,n
+		Matrix<10> x; //x_n,n
+		
 
 	private:
-		Vector<float,4> uXl; // cntrl vector for accel
-		Vector<float,3> uGy; // cntrl vector for gyros
-		Vector<float,4> zMg; // obs vector for magns
-		Vector<float,1> zBm; // obs vector for press
-		Vector<float,10> x_prior; //x_n,n-1
-		Matrix<float,4,10> Hmg;  //mag obs matrix
-		Matrix<float,1,10> Hbm;  //baro obs matrix
-		Matrix<float,10,4> G;    //cntrl matrix
-		Matrix<float,10,10> F;   //state transn matrix
-		Matrix<float,10,10> P;   //covariance matrix
-		Matrix<float,10,10> P_prior;  //covariance prior prediction
-		Matrix<float,4,4> Rmg;   //mag meas covar matrix
-		Matrix<float,1,1> Rbm;   //baro meas covar matrix
-		Matrix<float,10,4> Kmg;  //mag kalman gain
-		Vector<float,10>   Kbm;  //baro kalman gain
+		Matrix<4> uXl; // cntrl vector for accel
+		Matrix<3> uGy; // cntrl vector for gyros
+		Matrix<4> zMg; // obs vector for magns
+		Matrix<1> zBm; // obs vector for press
+		Matrix<10> x_prior; //x_n,n-1
+		Matrix<4,10> Hmg;  //mag obs matrix
+		Matrix<1,10> Hbm;  //baro obs matrix
+		Matrix<10,4> G;    //cntrl matrix
+		Matrix<10,10> F;   //state transn matrix
+		Matrix<10,10> P;   //covariance matrix
+		Matrix<10,10> P_prior;  //covariance prior prediction
+		Matrix<4,4> Rmg;   //mag meas covar matrix
+		Matrix<1,1> Rbm;   //baro meas covar matrix
+		Matrix<10,4> Kmg;  //mag kalman gain
+		Matrix<10>   Kbm;  //baro kalman gain
 
 		LSM9DS1 IMU;
-		Vector<float,3> mgBase;  //initial magnetometer vector, for comparing against
+		Matrix<3> mgBase;  //initial magnetometer vector, for comparing against
 
 		Sensors& sens;
 
@@ -46,7 +43,8 @@ class KalmanFilter {
 		void update(bool magAvail, bool baroAvail);
 		void extrapolate(float dt);
 		void normalize();
-		Vector<float,3> measTransform(quaternion q, Vector<float,3> meas);
+		Matrix<3> crossProd(Matrix<3> A, Matrix<3> B);
+		Matrix<3> measTransform(quaternion q, Matrix<3> meas);
 		int normCounter=0;
 
 };

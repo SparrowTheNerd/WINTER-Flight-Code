@@ -3,12 +3,12 @@
 #include <SparkFunLSM9DS1.h>
 #include <Adafruit_ADXL375.h>
 #include <MS5xxx.h>
-#include <eigen-3.4.0/Eigen/Dense>
-using Eigen::Matrix; using Eigen::Vector;
+#include <BasicLinearAlgebra.h>
+using namespace BLA;
 
 class Sensors{
 	public:
-		Sensors( Vector<float,3> magHard, Matrix<float,3,3> magSoft, float xOfst, float yOfst, float zOfst);
+		Sensors( Matrix<3> magHard, Matrix<3,3> magSoft, float xOfst, float yOfst, float zOfst);
 		void init();
 		void getData();
 		void baroData();
@@ -18,8 +18,8 @@ class Sensors{
 		uint32_t timeBaro;
 		bool baroAvail;
 		bool magAvail;
-		Vector<float,3> magCal_hard;
-		Matrix<float,3,3> magCal_soft;
+		Matrix<3> magCal_hard;
+		Matrix<3,3> magCal_soft;
 
 	private:
 		Adafruit_ADXL375 IMU_HighG = Adafruit_ADXL375(1,&Wire);

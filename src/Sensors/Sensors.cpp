@@ -1,6 +1,7 @@
 #include "Sensors/Sensors.h"
+using namespace BLA;
 
-Sensors::Sensors(Vector<float,3> magHard, Matrix<float,3,3> magSoft, float xOfst, float yOfst, float zOfst) {
+Sensors::Sensors(Matrix<3> magHard, Matrix<3,3> magSoft, float xOfst, float yOfst, float zOfst) {
     this->magCal_hard = magHard;
     this->magCal_soft = magSoft;
     this->xOfst = xOfst;
@@ -95,7 +96,7 @@ void Sensors::getData() {
   }
   if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
     IMU.readMag();
-    Vector<float,3> mag = magCal_soft * Vector<float,3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+    Matrix<3> mag = magCal_soft * Matrix<3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
     mX = IMU.calcMag(mag(0));
     mY = IMU.calcMag(mag(1));
     mZ = IMU.calcMag(mag(2));
