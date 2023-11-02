@@ -2,6 +2,8 @@
 #include <SdFat.h>
 #include "Kalman/KalmanFilter.h"
 #include "Sensors/Sensors.h"
+#include <eigen-3.4.0/Eigen/Dense>
+using Eigen::Matrix; using Eigen::Vector;
 
 #define BZR     PC8
 #define CS_SD   PC0
@@ -27,11 +29,10 @@ struct sensData {
 } data;
 
 
-Matrix<3,1> magCal_hard = {-19.03*8,28.14*8,-66.63*8}; //hard and soft iron calibrations
-Matrix<3,3> magCal_soft = { 0.961, 0.026,-0.024,
-                            0.026, 1.010,-0.002,
-                           -0.024,-0.002, 1.032};
-Matrix<3> mag;
+Vector<float,3> magCal_hard = {-19.03*8,28.14*8,-66.63*8}; //hard and soft iron calibrations
+Matrix<float,3,3> magCal_soft = { 0.961, 0.026,-0.024,
+                                  0.026, 1.010,-0.002,
+                                 -0.024,-0.002, 1.032};
 
 float degToRad(float deg) {
   return deg*DEG_TO_RAD;
@@ -56,7 +57,7 @@ void setup() {
   sens.init();    //initialize sensors
   sens.timeBaro = micros();
   kalman.init(stddev_mg, stddev_ps);
-  Serial << kalman.x;
+  //Serial << kalman.x;
   Time = micros();
   delay(1);
 }
