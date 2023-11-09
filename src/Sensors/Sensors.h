@@ -8,7 +8,7 @@ using namespace BLA;
 
 class Sensors{
 	public:
-		Sensors( Matrix<3> magHard, Matrix<3,3> magSoft, float xOfst, float yOfst, float zOfst);
+		Sensors( Matrix<3> magHard, Matrix<3,3> magSoft);
 		void init();
 		void getData();
 		void baroData();

@@ -11,7 +11,7 @@
 //measurement stddevs
 #define stddev_xl   (float)0.180   //180 milli G's from LSM9DS1 datasheet
 #define stddev_gy   (float)2.0     //2 deg/s, roughly measured
-#define stddev_mg   (float)0.1     //1 Gauss from LSM9DS1 datasheet, will improve post calibration
+#define stddev_mg   (float)0.01     //1 Gauss from LSM9DS1 datasheet, will improve post calibration
 #define stddev_ps   (float)3.05     //400Pa, around 10ft (3.05m) from MS5607 datasheet
 
 SdFat SD;
@@ -27,11 +27,10 @@ struct sensData {
 } data;
 
 
-Matrix<3,1> magCal_hard = {-19.03*8,28.14*8,-66.63*8}; //hard and soft iron calibrations
-Matrix<3,3> magCal_soft = { 0.961, 0.026,-0.024,
-                            0.026, 1.010,-0.002,
-                           -0.024,-0.002, 1.032};
-Matrix<3> mag;
+Matrix<3,1> magCal_hard = {-31.84f*8.f,51.43f*8.f,42.51f*8.f}; //hard and soft iron calibrations
+Matrix<3,3> magCal_soft = { 0.985f, 0.033f,-0.010f,
+                            0.033f, 1.005f, 0.017f,
+                           -0.010f, 0.008f, 1.011f};
 
 float degToRad(float deg) {
   return deg*DEG_TO_RAD;
@@ -40,9 +39,9 @@ float radToDeg(float rad) {
   return rad*RAD_TO_DEG;
 }
 
-Sensors sens = Sensors(magCal_hard,magCal_soft, gXOfst, gYOfst, gZOfst);
+Sensors sens = Sensors(magCal_hard,magCal_soft);
 KalmanFilter kalman = KalmanFilter(sens);
-
+void magCal();
 void setup() {
   pinMode(BZR,OUTPUT);
   analogWriteResolution(16);  //set pwm resolution to 16 bit (0-65535)
@@ -67,6 +66,8 @@ void loop() {
   Time = micros();
   sens.getData();
   kalman.filter(dT);
+  //magCal();
+  delay(10);
   sens.magAvail = false; sens.baroAvail = false;  //reset sensor availability before next loop
   // Serial << kalman.x;
   // Serial.println(" ");
@@ -131,13 +132,13 @@ void SystemClock_Config(void)
 
 // void magCal() {   //for use with MotionCal software
 //   Serial.print("Raw:"); //Serial.print("0,0,0,0,0,0,");
-//   Serial.print((IMU.ax)/8); Serial.print(",");
-//   Serial.print((IMU.ay)/8); Serial.print(",");
-//   Serial.print((IMU.az)/8); Serial.print(",");
-//   Serial.print((IMU.gx-140)/8); Serial.print(",");
-//   Serial.print((IMU.gy-95)/8); Serial.print(",");
-//   Serial.print((IMU.gz-70)/8); Serial.print(",");
-//   Serial.print((IMU.mx)/8); Serial.print(",");
-//   Serial.print((IMU.my)/8); Serial.print(",");
-//   Serial.print((IMU.mz)/8); Serial.println("");
+//   Serial.print((int)((sens.aX)/8)); Serial.print(",");
+//   Serial.print((int)((sens.aY)/8)); Serial.print(",");
+//   Serial.print((int)((sens.aZ)/8)); Serial.print(",");
+//   Serial.print((int)((sens.gX)/8-20)); Serial.print(",");
+//   Serial.print((int)((sens.gY)/8-18)); Serial.print(",");
+//   Serial.print((int)((sens.gZ)/8-8)); Serial.print(",");
+//   Serial.print((int)((sens.mX)/8)); Serial.print(",");
+//   Serial.print((int)((sens.mY)/8)); Serial.print(",");
+//   Serial.print((int)((sens.mZ)/8)); Serial.println("");
 // }

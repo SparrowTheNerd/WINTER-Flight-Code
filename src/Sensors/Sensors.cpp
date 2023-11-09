@@ -1,12 +1,9 @@
 #include "Sensors/Sensors.h"
 using namespace BLA;
 
-Sensors::Sensors(Matrix<3> magHard, Matrix<3,3> magSoft, float xOfst, float yOfst, float zOfst) {
+Sensors::Sensors(Matrix<3> magHard, Matrix<3,3> magSoft) {
     this->magCal_hard = magHard;
     this->magCal_soft = magSoft;
-    this->xOfst = xOfst;
-    this->yOfst = yOfst;
-    this->zOfst = zOfst;
 };
 
 void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and high-G accel
@@ -34,6 +31,16 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
   barometer.ReadProm();
 
   Wire.setClock(400000);
+
+  float xCal, yCal, zCal;
+  for (int i = 0; i < 500; i++) {
+    IMU.readGyro();
+    xCal += (IMU.calcGyro(IMU.gx));
+    yCal += (IMU.calcGyro(IMU.gy));
+    zCal += (IMU.calcGyro(IMU.gz));   
+    delay(1);
+  }
+  xOfst = xCal/500.f; yOfst = yCal/500.f; zOfst = zCal/500.f;
 }
 
 void Sensors::baroData() {
@@ -87,20 +94,25 @@ void Sensors::getData() {
     gX = DEG_TO_RAD*(IMU.calcGyro(IMU.gx) - xOfst);
     gY = DEG_TO_RAD*(IMU.calcGyro(IMU.gy) - yOfst);
     gZ = DEG_TO_RAD*(IMU.calcGyro(IMU.gz) - zOfst);
+    // gX = IMU.gx; gY = IMU.gy; gZ = IMU.gz;
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
     aX = IMU.calcAccel(IMU.ax)*9.80665;
     aY = IMU.calcAccel(IMU.ay)*9.80665;
     aZ = IMU.calcAccel(IMU.az)*9.80665;
+    // aX = IMU.ax; aY = IMU.ay; aZ = IMU.az;
   }
   if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
     IMU.readMag();
-    Matrix<3> mag = magCal_soft * Matrix<3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
-    mX = IMU.calcMag(mag(0));
-    mY = IMU.calcMag(mag(1));
-    mZ = IMU.calcMag(mag(2));
+    //Matrix<3> mag = magCal_soft * Matrix<3> {(float)(IMU.mx)-magCal_hard(0),(float)(IMU.my)-magCal_hard(1),(float)(IMU.mz)-magCal_hard(2)};
+    Matrix<3> mag = {IMU.mx, IMU.my, IMU.mz};
+    mX = (mag(0));
+    mY = (mag(1));
+    mZ = (mag(2));
+    //mX = IMU.mx; mY = IMU.my; mZ = IMU.mz;
     magAvail = true;
+    //Serial.print(mX); Serial.print(", "); Serial.println(mY);// Serial.print(", "); Serial.println(mZ);
   }
 }
 

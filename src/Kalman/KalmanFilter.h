@@ -40,7 +40,7 @@ class KalmanFilter {
 		Sensors& sens;
 
 		void gain();
-		void update(bool magAvail, bool baroAvail);
+		void update();
 		void extrapolate(float dt);
 		void normalize();
 		Matrix<3> crossProd(Matrix<3> A, Matrix<3> B);
