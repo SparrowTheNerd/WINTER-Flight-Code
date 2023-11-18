@@ -106,7 +106,7 @@ void Sensors::getData() {
   if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
     IMU.readMag();
     //Matrix<3> mag = magCal_soft * Matrix<3> {(float)(IMU.mx)-magCal_hard(0),(float)(IMU.my)-magCal_hard(1),(float)(IMU.mz)-magCal_hard(2)};
-    Matrix<3> mag = {IMU.mx, IMU.my, IMU.mz};
+    Matrix<3> mag = {IMU.calcMag(IMU.mx), IMU.calcMag(IMU.my), IMU.calcMag(IMU.mz)};
     mX = (mag(0));
     mY = (mag(1));
     mZ = (mag(2));

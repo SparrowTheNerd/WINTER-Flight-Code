@@ -85,29 +85,20 @@ void KalmanFilter::update() {    //state update using mag and baro & update cova
   // P+= (I-Kmg*Hmg)*P_prior*~(I-Kmg*Hmg) + Kmg*Rmg*~Kmg;
 }
 void KalmanFilter::extrapolate(float dT) {   //extrapolation / prediction function
-  float X = uGy(0);
-	float Y = uGy(1);
-	float Z = uGy(2);
-  Matrix<4> q0 = {x(6),x(7),x(8),x(9)};
-  Matrix<4,4> I4 = {1.f,0,0,0,0,1.f,0,0,0,0,1.f,0,0,0,0,1.f};
-  Matrix<4,4> omega = { 0, -X, -Y, -Z,
-                        X,  0,  Z, -Y,
-                        Y, -Z,  0,  X,
-                        Z,  Y, -X,  0};
-	Matrix<4> qNew = (I4+omega*0.5f*dT)*q0;
-  float qMag = sqrtf(qNew(0)*qNew(0)+qNew(1)*qNew(1)+qNew(2)*qNew(2)+qNew(3)*qNew(3));
-  qNew /= qMag;
-
   G = { dT*dT/2,    0   ,    0   ,  0 ,			//control matrix for acceleration and quat rates (acceleration -> velocity & pos)
            0   , dT*dT/2,    0   ,  0 ,
            0   ,    0   , dT*dT/2,  0 ,
            dT  ,    0   ,    0   ,  0 ,
            0   ,    dT  ,    0   ,  0 ,
            0   ,    0   ,    dT  ,  0 ,
-           0   ,    0   ,    0   ,  qNew(0) ,	//quaternion rates
-           0   ,    0   ,    0   ,  qNew(1) ,
-           0   ,    0   ,    0   ,  qNew(2) ,
-           0   ,    0   ,    0   ,  qNew(3) };
+           0   ,    0   ,    0   ,  0 ,	
+           0   ,    0   ,    0   ,  0 ,
+           0   ,    0   ,    0   ,  0 ,
+           0   ,    0   ,    0   ,  0 };
+	
+	float X = uGy(0)*dT/2.f;
+	float Y = uGy(1)*dT/2.f;
+	float Z = uGy(2)*dT/2.f;
   
   F = { 1.f, 0, 0, dT,  0,  0, 0, 0, 0, 0,		//state transition matrix (velocity -> position)
         0, 1.f, 0,  0, dT,  0, 0, 0, 0, 0,
@@ -115,10 +106,10 @@ void KalmanFilter::extrapolate(float dT) {   //extrapolation / prediction functi
         0, 0, 0,  1.f,  0,  0, 0, 0, 0, 0,
         0, 0, 0,  0,  1.f,  0, 0, 0, 0, 0,
         0, 0, 0,  0,  0,  1.f, 0, 0, 0, 0,
-        0, 0, 0,  0,  0,  0,   0, 0, 0, 0,
-        0, 0, 0,  0,  0,  0,   0, 0, 0, 0,
-        0, 0, 0,  0,  0,  0,   0, 0, 0, 0,
-        0, 0, 0,  0,  0,  0,   0, 0, 0, 0};
+        0, 0, 0,  0,  0,  0, 1.f,-X,-Y, -Z,		//quaternion rates
+        0, 0, 0,  0,  0,  0, X, 1.f, Z, -Y,
+        0, 0, 0,  0,  0,  0, Y,-Z, 1.f,  X,
+        0, 0, 0,  0,  0,  0, Z, Y, -X, 1.f};
   
 	
 	x_prior = F*x + G*uXl;
@@ -141,9 +132,9 @@ void KalmanFilter::normalize() {
 
 Matrix<3> KalmanFilter::measTransform(quaternion q, Matrix<3> meas) {
 	//q.x = -q.x; q.y = -q.y; q.z = -q.z;
-	Matrix<3,3> transform = { q.w*q.w + q.x*q.x - q.y*q.y - q.z*q.z, 2*(q.x*q.y - q.w*q.z), 2*(q.w*q.y + q.x*q.z),
-														2*(q.x*q.y + q.w*q.z), q.w*q.w - q.x*q.x + q.y*q.y - q.z*q.z, 2*(q.y*q.z - q.w*q.x),
-														2*(q.x*q.z - q.w*q.y), 2*(q.w*q.x + q.y*q.z), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z};
+	Matrix<3,3> transform = { q.w*q.w + q.x*q.x - q.y*q.y - q.z*q.z, 2*(q.x*q.y + q.w*q.z), 2*(q.x*q.z - q.w*q.y),
+														2*(q.x*q.y - q.w*q.z), q.w*q.w - q.x*q.x + q.y*q.y - q.z*q.z, 2*(q.y*q.z + q.w*q.x),
+														2*(q.x*q.z + q.w*q.y), 2*(q.y*q.z - q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z };
   //Serial.print(q.w); Serial.print(","); Serial.print(q.x); Serial.print(","); Serial.print(q.y); Serial.print(","); Serial.println(q.z);
   return transform*meas;
 }

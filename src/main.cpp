@@ -67,7 +67,6 @@ void loop() {
   sens.getData();
   kalman.filter(dT);
   //magCal();
-  delay(10);
   sens.magAvail = false; sens.baroAvail = false;  //reset sensor availability before next loop
   // Serial << kalman.x;
   // Serial.println(" ");
