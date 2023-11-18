@@ -2,16 +2,35 @@
 #include <SdFat.h>
 #include "Kalman/KalmanFilter.h"
 #include "Sensors/Sensors.h"
+#include <BasicLinearAlgebra.h>
+using namespace BLA;
+
+Sensors sens;
+KalmanFilter kalman = KalmanFilter(sens);
+
+uint32_t prevTime;
 
 void setup() {
   SerialUSB.begin(); //start serial port
   while(!SerialUSB);
 
   Wire.begin(uint32_t(PB9_ALT0),uint32_t(PB8_ALT0));
+  sens.init();
+  kalman.init();
+  prevTime = micros();
+  delay(5);
 }
 
 void loop() {
-  
+  float dT = (float)(micros()-prevTime)/1000000.f;
+  prevTime = micros();
+  kalman.filter(dT);
+  Serial << kalman.x;
+  Serial.println();
+  if(!sens.IMU.gyroAvailable()) {
+    delayMicroseconds(100);
+  }
+  //delay(5);
 }
 
 void SystemClock_Config(void)

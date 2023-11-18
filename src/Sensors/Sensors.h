@@ -8,7 +8,7 @@ using namespace BLA;
 
 class Sensors{
 	public:
-		Sensors( Matrix<3> magHard, Matrix<3,3> magSoft, float xOfst, float yOfst, float zOfst);
+		Sensors();
 		void init();
 		void getData();
 		void baroData();
@@ -20,11 +20,12 @@ class Sensors{
 		bool magAvail;
 		Matrix<3> magCal_hard;
 		Matrix<3,3> magCal_soft;
+		LSM9DS1 IMU;
 
 	private:
 		Adafruit_ADXL375 IMU_HighG = Adafruit_ADXL375(1,&Wire);
 		MS5xxx barometer = MS5xxx(&Wire);
-		LSM9DS1 IMU;
+		
 		int baroStep;
 		unsigned long d1, d2;
 		float prs;

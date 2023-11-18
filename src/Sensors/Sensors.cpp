@@ -1,25 +1,24 @@
 #include "Sensors/Sensors.h"
 using namespace BLA;
 
-Sensors::Sensors(Matrix<3> magHard, Matrix<3,3> magSoft, float xOfst, float yOfst, float zOfst) {
-    this->magCal_hard = magHard;
-    this->magCal_soft = magSoft;
-    this->xOfst = xOfst;
-    this->yOfst = yOfst;
-    this->zOfst = zOfst;
+Sensors::Sensors() {
+  magCal_hard = {0,0,0};
+  magCal_soft = { 1.f,  0,  0,
+                    0, 1.f,  0,
+                    0,  0, 1.f};
 };
 
 void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and high-G accel
   IMU.begin(0x6B,0x1E,Wire);
   IMU.settings.gyro.enabled = true;
-  IMU.settings.gyro.scale = 2000; //2000dps
-  IMU.settings.gyro.sampleRate = 5; //476hz
+  IMU.settings.gyro.scale = 500; //500dps
+  IMU.settings.gyro.sampleRate = 3; //119hz
   IMU.settings.gyro.lowPowerEnable = false;
   IMU.settings.gyro.HPFEnable = false;
 
   IMU.settings.accel.enabled = true;
   IMU.settings.accel.scale = 16;    //16G
-  IMU.settings.accel.sampleRate = 5; //476hz
+  IMU.settings.accel.sampleRate = 3; //119hz
 
   IMU.settings.mag.enabled = true;
   IMU.settings.mag.scale = 4;     //4 Gauss
@@ -34,6 +33,18 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
   barometer.ReadProm();
 
   Wire.setClock(400000);
+
+  float xcal = 0, ycal = 0, zcal = 0;
+  for(int i = 0; i < 250; i++) {
+    while (!IMU.gyroAvailable()) {delay(1);};
+    IMU.readGyro();
+    gX = (IMU.calcGyro(IMU.gx) );
+    gY = (IMU.calcGyro(IMU.gy) );
+    gZ = (IMU.calcGyro(IMU.gz) );
+    xcal += gX; ycal += gY; zcal += gZ;
+  }
+  xOfst = xcal/250.f; yOfst = ycal/250.f; zOfst = zcal/250.f;
+  Serial.println("calibrated!");
 }
 
 void Sensors::baroData() {
@@ -81,27 +92,27 @@ void Sensors::baroData() {
   }
 }
 void Sensors::getData() {
-  baroData();
+  //baroData();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
     gX = DEG_TO_RAD*(IMU.calcGyro(IMU.gx) - xOfst);
     gY = DEG_TO_RAD*(IMU.calcGyro(IMU.gy) - yOfst);
     gZ = DEG_TO_RAD*(IMU.calcGyro(IMU.gz) - zOfst);
   }
-  if (IMU.accelAvailable()) {
-    IMU.readAccel();
-    aX = IMU.calcAccel(IMU.ax)*9.80665;
-    aY = IMU.calcAccel(IMU.ay)*9.80665;
-    aZ = IMU.calcAccel(IMU.az)*9.80665;
-  }
-  if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
-    IMU.readMag();
-    Matrix<3> mag = magCal_soft * Matrix<3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
-    mX = IMU.calcMag(mag(0));
-    mY = IMU.calcMag(mag(1));
-    mZ = IMU.calcMag(mag(2));
-    magAvail = true;
-  }
+  // if (IMU.accelAvailable()) {
+  //   IMU.readAccel();
+  //   aX = IMU.calcAccel(IMU.ax)*9.80665;
+  //   aY = IMU.calcAccel(IMU.ay)*9.80665;
+  //   aZ = IMU.calcAccel(IMU.az)*9.80665;
+  // }
+  // if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
+  //   IMU.readMag();
+  //   Matrix<3> mag = magCal_soft * Matrix<3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+  //   mX = IMU.calcMag(mag(0));
+  //   mY = IMU.calcMag(mag(1));
+  //   mZ = IMU.calcMag(mag(2));
+  //   magAvail = true;
+  // }
 }
 
 float Sensors::altCalc() {
