@@ -25,14 +25,12 @@ void KalmanFilter::init(float stddev_mg, float stddev_ps) {
               0    ,     0    , stddev_mg };
   Rbm = { stddev_ps };
 
-  Hbm = { 0, 0, 1.f, 0, 0, 0, 0, 0, 0, 0};		//measurement matrices
+  Hbm = { 1.f, 0, 0, 0, 0, 0, 0, 0, 0, 0};		//measurement matrices
   Hmg = { 0, 0, 0, 0, 0, 0, 1.f, 0, 0, 0,
           0, 0, 0, 0, 0, 0, 0, 1.f, 0, 0,
           0, 0, 0, 0, 0, 0, 0, 0, 1.f, 0,
           0, 0, 0, 0, 0, 0, 0, 0, 0, 1.f};
 
-  float magMag = sqrtf(sens.mX*sens.mX+sens.mY*sens.mY+sens.mZ*sens.mZ);
-  mgBase = {sens.mX/magMag,sens.mY/magMag,sens.mZ/magMag};    //normalize the base mag vector
   Matrix<3> gravVect = {sens.aX, sens.aY, sens.aZ};
 	Matrix<3> gravBase = {1.f, 0.f, 0.f};																		//real gravity is straight on global x
   gravVect /= sqrt(sens.aX*sens.aX+sens.aY*sens.aY+sens.aZ*sens.aZ);      //normalize gravity vector
@@ -42,10 +40,13 @@ void KalmanFilter::init(float stddev_mg, float stddev_ps) {
 	float sA = sinf(halfAng);
 	quaternion q = {cosf(halfAng),axis(0)*sA, axis(1)*sA, axis(2)*sA};
 
+	float magMag = sqrtf(sens.mX*sens.mX+sens.mY*sens.mY+sens.mZ*sens.mZ);
+  Matrix<3> magTemp = {sens.mX/magMag,sens.mY/magMag,sens.mZ/magMag};    //normalize the base mag vector
+	mgBase = measTransform(q,magTemp);	//rotate mgBase so that the magnetometer takes the initial orientation into account
+
   x = {0., 0., 0., 0., 0., 0., q.w, q.x, q.y, q.z};   //initial state estimate; position and velocity are zero, and orientation calculated above
 	normalize();
-  P.Fill(0.f);   //initial covariance error is zero, initial estimate is as close to true state as is reasonable
-  
+  P.Fill(0.001f);   //initial covariance error is zero, initial estimate is as close to true state as is reasonable
     
 }
 
@@ -55,7 +56,9 @@ void KalmanFilter::gain() {
   Kmg = P_prior*Hmg_T*Inverse(Hmg*P_prior*Hmg_T+Rmg);
   /* barometer section */
   Matrix<10> Hbm_T = ~Hbm;
-  Kbm = P_prior*Hbm_T*Inverse(Hbm*P_prior*Hbm_T+Rbm);
+  Kbm = /*{0.1f, 0, 0, 0, 0, 0, 0, 0, 0, 0};*/ P_prior*Hbm_T*Inverse(Hbm*P_prior*Hbm_T+Rbm);
+	//Serial << Kbm;
+	//Serial.println();
 }
 void KalmanFilter::update() {    //state update using mag and baro & update covariance
   x = x_prior;
@@ -69,6 +72,8 @@ void KalmanFilter::update() {    //state update using mag and baro & update cova
 	// 	zMg = {cosf(halfAng),axis(0)*sA, axis(1)*sA, axis(2)*sA};
   //   // Serial << mgBase; Serial.print("    ,    ");
   //   // Serial << mag; Serial.println();
+	// 	// Serial << zMg; Serial.println();
+	// 	//Serial << Kmg; Serial.println();
 
   //   x += Kmg*(zMg - Hmg*x_prior);
   // }
@@ -82,23 +87,22 @@ void KalmanFilter::update() {    //state update using mag and baro & update cova
   //   I(i,i) = 1.f;
   // }
   // P = (I-Kbm*Hbm)*P_prior*~(I-Kbm*Hbm) + Kbm*Rbm*~Kbm;
-  // P+= (I-Kmg*Hmg)*P_prior*~(I-Kmg*Hmg) + Kmg*Rmg*~Kmg;
+  //P+= (I-Kmg*Hmg)*P_prior*~(I-Kmg*Hmg) + Kmg*Rmg*~Kmg;
 }
 void KalmanFilter::extrapolate(float dT) {   //extrapolation / prediction function
-  G = { dT*dT/2,    0   ,    0   ,  0 ,			//control matrix for acceleration and quat rates (acceleration -> velocity & pos)
-           0   , dT*dT/2,    0   ,  0 ,
-           0   ,    0   , dT*dT/2,  0 ,
-           dT  ,    0   ,    0   ,  0 ,
-           0   ,    dT  ,    0   ,  0 ,
-           0   ,    0   ,    dT  ,  0 ,
-           0   ,    0   ,    0   ,  0 ,	
-           0   ,    0   ,    0   ,  0 ,
-           0   ,    0   ,    0   ,  0 ,
-           0   ,    0   ,    0   ,  0 };
-	
 	float X = uGy(0)*dT/2.f;
 	float Y = uGy(1)*dT/2.f;
 	float Z = uGy(2)*dT/2.f;
+	G = { dT*dT/2,    0   ,    0   , 0, 0, 0, 0,			//control matrix for acceleration and quat rates (acceleration -> velocity & pos)
+           0   , dT*dT/2,    0   , 0, 0, 0, 0,
+           0   ,    0   , dT*dT/2, 0, 0, 0, 0,
+           dT  ,    0   ,    0   , 0, 0, 0, 0,
+           0   ,    dT  ,    0   , 0, 0, 0, 0,
+           0   ,    0   ,    dT  , 0, 0, 0, 0,
+           0   ,    0   ,    0   , 0,-X,-Y, -Z,
+           0   ,    0   ,    0   , X, 0, Z, -Y,
+           0   ,    0   ,    0   , Y,-Z, 0,  X,
+           0   ,    0   ,    0   , Z, Y, -X, 0};
   
   F = { 1.f, 0, 0, dT,  0,  0, 0, 0, 0, 0,		//state transition matrix (velocity -> position)
         0, 1.f, 0,  0, dT,  0, 0, 0, 0, 0,
@@ -106,13 +110,13 @@ void KalmanFilter::extrapolate(float dT) {   //extrapolation / prediction functi
         0, 0, 0,  1.f,  0,  0, 0, 0, 0, 0,
         0, 0, 0,  0,  1.f,  0, 0, 0, 0, 0,
         0, 0, 0,  0,  0,  1.f, 0, 0, 0, 0,
-        0, 0, 0,  0,  0,  0, 1.f,-X,-Y, -Z,		//quaternion rates
-        0, 0, 0,  0,  0,  0, X, 1.f, Z, -Y,
-        0, 0, 0,  0,  0,  0, Y,-Z, 1.f,  X,
-        0, 0, 0,  0,  0,  0, Z, Y, -X, 1.f};
+        0, 0, 0,  0,  0,  0, 1.f, 0, 0, 0,		//quaternion rates
+        0, 0, 0,  0,  0,  0, 0, 1.f, 0, 0,
+        0, 0, 0,  0,  0,  0, 0, 0, 1.f, 0,
+        0, 0, 0,  0,  0,  0, 0, 0, 0, 1.f};
   
 	
-	x_prior = F*x + G*uXl;
+	x_prior = F*x + G*(uXl && Matrix<4> {x(6),x(7),x(8),x(9)});
   //x_prior(6) += qdot(0); x_prior(7) += qdot(1); x_prior(8) += qdot(2); x_prior(9) += qdot(3);
   P_prior = F*P*~F; 
   //Serial.println((dT/2)*(q.w - q.x*X - q.y*Y - q.z*Z),6);
@@ -140,12 +144,12 @@ Matrix<3> KalmanFilter::measTransform(quaternion q, Matrix<3> meas) {
 }
 
 void KalmanFilter::filter(float dT) {
-  normalize();
-	uXl = measTransform(quaternion {x(6),x(7),x(8),x(9)}, Matrix<3> {sens.aX, sens.aY, sens.aZ}) && Matrix<1> {1};	//make 4 entry vector by concatenating (&&) transform with 1
+	uXl = measTransform(quaternion {x(6),x(7),x(8),x(9)}, Matrix<3> {sens.aX, sens.aY, sens.aZ});
 	uGy = measTransform(quaternion {x(6),x(7),x(8),x(9)}, Matrix<3> {sens.gX, sens.gY, sens.gZ});
+	uXl(0) -= 9.80665f;		//subtract gravity
 	extrapolate(dT);
-	//gain();
+	gain();
 	update();
   normalize();
-  Serial.print(x(6),4); Serial.print(" , "); Serial.print(x(7),4); Serial.print(" , "); Serial.print(x(8),4); Serial.print(" , "); Serial.println(x(9),4);
+  //Serial.print(x(6),4); Serial.print(" , "); Serial.print(x(7),4); Serial.print(" , "); Serial.print(x(8),4); Serial.print(" , "); Serial.println(x(9),4);
 }

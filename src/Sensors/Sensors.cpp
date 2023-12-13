@@ -9,7 +9,7 @@ Sensors::Sensors(Matrix<3> magHard, Matrix<3,3> magSoft) {
 void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and high-G accel
   IMU.begin(0x6B,0x1E,Wire);
   IMU.settings.gyro.enabled = true;
-  IMU.settings.gyro.scale = 2000; //2000dps
+  IMU.settings.gyro.scale = 500; //2000dps
   IMU.settings.gyro.sampleRate = 5; //476hz
   IMU.settings.gyro.lowPowerEnable = false;
   IMU.settings.gyro.HPFEnable = false;
@@ -34,11 +34,11 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
 
   float xCal, yCal, zCal;
   for (int i = 0; i < 500; i++) {
+    while(!IMU.gyroAvailable()) {delayMicroseconds(500); };
     IMU.readGyro();
     xCal += (IMU.calcGyro(IMU.gx));
     yCal += (IMU.calcGyro(IMU.gy));
     zCal += (IMU.calcGyro(IMU.gz));   
-    delay(1);
   }
   xOfst = xCal/500.f; yOfst = yCal/500.f; zOfst = zCal/500.f;
 }
@@ -98,21 +98,21 @@ void Sensors::getData() {
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
-    aX = IMU.calcAccel(IMU.ax)*9.80665;
-    aY = IMU.calcAccel(IMU.ay)*9.80665;
-    aZ = IMU.calcAccel(IMU.az)*9.80665;
+    aX = IMU.calcAccel(IMU.ax)*9.80665 + 0.0635;
+    aY = IMU.calcAccel(IMU.ay)*9.80665 - 0.1735;
+    aZ = IMU.calcAccel(IMU.az)*9.80665 + 0.20075;
     // aX = IMU.ax; aY = IMU.ay; aZ = IMU.az;
+    //Serial.print(aX,3); Serial.print(", "); Serial.print(aY,3); Serial.print(", "); Serial.println(aZ+9.80665,3);
   }
   if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
     IMU.readMag();
-    //Matrix<3> mag = magCal_soft * Matrix<3> {(float)(IMU.mx)-magCal_hard(0),(float)(IMU.my)-magCal_hard(1),(float)(IMU.mz)-magCal_hard(2)};
-    Matrix<3> mag = {IMU.calcMag(IMU.mx), IMU.calcMag(IMU.my), IMU.calcMag(IMU.mz)};
-    mX = (mag(0));
+    Matrix<3> hardCal = {IMU.calcMag(IMU.mx-magCal_hard(0)),IMU.calcMag(IMU.my-magCal_hard(1)),IMU.calcMag(IMU.mz-magCal_hard(2))};
+    Matrix<3> mag = magCal_soft * hardCal;
+    mX = -(mag(0));
     mY = (mag(1));
     mZ = (mag(2));
     //mX = IMU.mx; mY = IMU.my; mZ = IMU.mz;
     magAvail = true;
-    //Serial.print(mX); Serial.print(", "); Serial.println(mY);// Serial.print(", "); Serial.println(mZ);
   }
 }
 

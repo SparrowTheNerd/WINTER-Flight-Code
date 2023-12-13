@@ -5,13 +5,10 @@
 
 #define BZR     PC8
 #define CS_SD   PC0
-#define gXOfst 1.301940492
-#define gYOfst 0.859327296
-#define gZOfst 0.528033635
 //measurement stddevs
 #define stddev_xl   (float)0.180   //180 milli G's from LSM9DS1 datasheet
 #define stddev_gy   (float)2.0     //2 deg/s, roughly measured
-#define stddev_mg   (float)0.01     //1 Gauss from LSM9DS1 datasheet, will improve post calibration
+#define stddev_mg   (float)1.0     //1 Gauss from LSM9DS1 datasheet, will improve post calibration
 #define stddev_ps   (float)3.05     //400Pa, around 10ft (3.05m) from MS5607 datasheet
 
 SdFat SD;
@@ -27,7 +24,7 @@ struct sensData {
 } data;
 
 
-Matrix<3,1> magCal_hard = {-31.84f*8.f,51.43f*8.f,42.51f*8.f}; //hard and soft iron calibrations
+Matrix<3,1> magCal_hard = {-2808.f, 3911.f, 4526.f}; //hard and soft iron calibrations
 Matrix<3,3> magCal_soft = { 0.985f, 0.033f,-0.010f,
                             0.033f, 1.005f, 0.017f,
                            -0.010f, 0.008f, 1.011f};
@@ -68,8 +65,7 @@ void loop() {
   kalman.filter(dT);
   //magCal();
   sens.magAvail = false; sens.baroAvail = false;  //reset sensor availability before next loop
-  // Serial << kalman.x;
-  // Serial.println(" ");
+  //Serial << kalman.x; Serial.println();
 }
 
 // void writeToSD() {
