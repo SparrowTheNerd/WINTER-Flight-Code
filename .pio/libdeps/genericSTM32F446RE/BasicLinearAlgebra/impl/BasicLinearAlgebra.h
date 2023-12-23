@@ -423,7 +423,7 @@ inline Print &operator<<(Print &strm, const int obj)
 
 inline Print &operator<<(Print &strm, const float obj)
 {
-    strm.print(obj);
+    strm.print(obj,6);
     return strm;
 }
 

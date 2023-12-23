@@ -5,8 +5,17 @@
 #include <BasicLinearAlgebra.h>
 using namespace BLA;
 
-Sensors sens;
-KalmanFilter kalman = KalmanFilter(sens);
+#define latitude 42.262119f
+void magCal();
+
+//Matrix<3,1> magCal_hard = {-0.f, 0.f, 0.f}; //hard and soft iron calibrations in WPI
+Matrix<3,1> magCal_hard = { -4061.74f, 1434.475f, -8685.29f};
+Matrix<3,3> magCal_soft = { 1.015f, 0.008f,-0.004f,
+                            0.033f, 0.990f,-0.002f,
+                           -0.004f,-0.002f, 0.996f};
+
+Sensors sens = Sensors(magCal_hard,magCal_soft);
+KalmanFilter kalman = KalmanFilter(sens, latitude);
 
 uint32_t prevTime;
 
@@ -18,19 +27,22 @@ void setup() {
   sens.init();
   kalman.init();
   prevTime = micros();
-  delay(5);
 }
 
 void loop() {
+  while(!sens.IMU.gyroAvailable()) {   //wait for magnetometer data
+    delayMicroseconds(100);
+  }
+  sens.getData();
   float dT = (float)(micros()-prevTime)/1000000.f;
+  sens.dt = dT;
   prevTime = micros();
+  
   kalman.filter(dT);
   Serial << kalman.x;
   Serial.println();
-  if(!sens.IMU.gyroAvailable()) {
-    delayMicroseconds(100);
-  }
-  //delay(5);
+  sens.magAvail = false;
+  sens.baroAvail = false;
 }
 
 void SystemClock_Config(void)
@@ -75,15 +87,15 @@ void SystemClock_Config(void)
   }
 }
 
-// void magCal() {   //for use with MotionCal software
-//   Serial.print("Raw:"); //Serial.print("0,0,0,0,0,0,");
-//   Serial.print((IMU.ax)/8); Serial.print(",");
-//   Serial.print((IMU.ay)/8); Serial.print(",");
-//   Serial.print((IMU.az)/8); Serial.print(",");
-//   Serial.print((IMU.gx-140)/8); Serial.print(",");
-//   Serial.print((IMU.gy-95)/8); Serial.print(",");
-//   Serial.print((IMU.gz-70)/8); Serial.print(",");
-//   Serial.print((IMU.mx)/8); Serial.print(",");
-//   Serial.print((IMU.my)/8); Serial.print(",");
-//   Serial.print((IMU.mz)/8); Serial.println("");
-// }
+void magCal() {   //for use with MotionCal software
+  Serial.print("Raw:"); //Serial.print("0,0,0,0,0,0,");
+  Serial.print((sens.IMU.ax)/8); Serial.print(",");
+  Serial.print((sens.IMU.ay)/8); Serial.print(",");
+  Serial.print((sens.IMU.az)/8); Serial.print(",");
+  Serial.print((sens.IMU.gx-140)/8); Serial.print(",");
+  Serial.print((sens.IMU.gy-95)/8); Serial.print(",");
+  Serial.print((sens.IMU.gz-70)/8); Serial.print(",");
+  Serial.print((sens.IMU.mx)/8); Serial.print(",");
+  Serial.print((sens.IMU.my)/8); Serial.print(",");
+  Serial.print((sens.IMU.mz)/8); Serial.println("");
+}

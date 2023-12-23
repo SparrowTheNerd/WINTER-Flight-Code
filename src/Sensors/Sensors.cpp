@@ -1,11 +1,10 @@
 #include "Sensors/Sensors.h"
 using namespace BLA;
 
-Sensors::Sensors() {
-  magCal_hard = {0,0,0};
-  magCal_soft = { 1.f,  0,  0,
-                    0, 1.f,  0,
-                    0,  0, 1.f};
+Sensors::Sensors(Matrix<3> magHard, Matrix<3,3> magSoft) {
+  this->magCal_hard = magHard;
+  this->magCal_soft = magSoft;
+  magAvail = false; baroAvail = false;
 };
 
 void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and high-G accel
@@ -22,10 +21,11 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
 
   IMU.settings.mag.enabled = true;
   IMU.settings.mag.scale = 4;     //4 Gauss
-  IMU.settings.mag.sampleRate = 7;    //80hz
-  IMU.settings.mag.XYPerformance = 3;   //high performance & continuous
-  IMU.settings.mag.ZPerformance = 3;
-  IMU.settings.mag.operatingMode = 0;
+  IMU.settings.mag.ZPerformance = 3; 
+  Wire.beginTransmission(0x1E);   //set fast ODR and configure for 155hz as in https://community.st.com/t5/mems-sensors/lsm9ds1-data-sheet-says-that-the-fast-odr-mode-enables/m-p/334058
+  Wire.write(0x20);
+  Wire.write(0b01110010);
+  Wire.endTransmission();
 
   IMU_HighG.begin();    //highG needs to be looked at, values are weird
 
@@ -91,28 +91,57 @@ void Sensors::baroData() {
       }
   }
 }
+
+float cutoff_freq = 50.0f;  // Cutoff frequency in Hz
+float RC = 1.0/(2*PI*cutoff_freq);
+
+
 void Sensors::getData() {
   //baroData();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
-    gX = DEG_TO_RAD*(IMU.calcGyro(IMU.gx) - xOfst);
+    gX = -DEG_TO_RAD*(IMU.calcGyro(IMU.gx) - xOfst);
     gY = DEG_TO_RAD*(IMU.calcGyro(IMU.gy) - yOfst);
     gZ = DEG_TO_RAD*(IMU.calcGyro(IMU.gz) - zOfst);
   }
   // if (IMU.accelAvailable()) {
   //   IMU.readAccel();
-  //   aX = IMU.calcAccel(IMU.ax)*9.80665;
+  //   aX = -IMU.calcAccel(IMU.ax)*9.80665;
   //   aY = IMU.calcAccel(IMU.ay)*9.80665;
   //   aZ = IMU.calcAccel(IMU.az)*9.80665;
   // }
-  // if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
-  //   IMU.readMag();
-  //   Matrix<3> mag = magCal_soft * Matrix<3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
-  //   mX = IMU.calcMag(mag(0));
-  //   mY = IMU.calcMag(mag(1));
-  //   mZ = IMU.calcMag(mag(2));
-  //   magAvail = true;
-  // }
+  if (IMU.magAvailable()) {
+    IMU.readMag();
+    Matrix<3> mag = magCal_soft * Matrix<3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+    mX = IMU.calcMag(mag(0));
+    mY = IMU.calcMag(mag(1));
+    mZ = IMU.calcMag(mag(2));
+
+    if(magFilter) {
+      // Apply Butterworth filter
+      float alpha = dt/(RC+dt);
+      float filtered_mX = alpha * mX + (1 - alpha) * prev_filtered_mX + alpha * (prev_mX - mX);
+      float filtered_mY = alpha * mY + (1 - alpha) * prev_filtered_mY + alpha * (prev_mY - mY);
+      float filtered_mZ = alpha * mZ + (1 - alpha) * prev_filtered_mZ + alpha * (prev_mZ - mZ);
+
+      // Store current readings for the next iteration
+      prev_mX = mX;
+      prev_mY = mY;
+      prev_mZ = mZ;
+      prev_filtered_mX = filtered_mX;
+      prev_filtered_mY = filtered_mY;
+      prev_filtered_mZ = filtered_mZ;
+
+      // Use filtered readings
+      mX = filtered_mX;
+      mY = filtered_mY;
+      mZ = filtered_mZ;
+    }
+    else { magFilter = true; }
+    float magMag = sqrtf(mX*mX+mY*mY+mZ*mZ);  //normalize magnetometer reading
+    mX /= magMag; mY /= magMag; mZ /= magMag;
+    magAvail = true;
+  }
 }
 
 float Sensors::altCalc() {
