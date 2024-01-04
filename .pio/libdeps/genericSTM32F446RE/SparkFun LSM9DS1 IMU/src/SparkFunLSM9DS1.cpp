@@ -59,12 +59,10 @@ void LSM9DS1::init()
 	settings.gyro.enableY = true;
 	settings.gyro.enableZ = true;
 	// gyro scale can be 245, 500, or 2000
-	settings.gyro.scale = 245;
 	// gyro sample rate: value between 1-6
 	// 1 = 14.9    4 = 238
 	// 2 = 59.5    5 = 476
 	// 3 = 119     6 = 952
-	settings.gyro.sampleRate = 6;
 	// gyro cutoff frequency: value between 0-3
 	// Actual value of cutoff frequency depends
 	// on sample rate.
@@ -86,12 +84,10 @@ void LSM9DS1::init()
 	settings.accel.enableY = true;
 	settings.accel.enableZ = true;
 	// accel scale can be 2, 4, 8, or 16
-	settings.accel.scale = 2;
 	// accel sample rate can be 1-6
 	// 1 = 10 Hz    4 = 238 Hz
 	// 2 = 50 Hz    5 = 476 Hz
 	// 3 = 119 Hz   6 = 952 Hz
-	settings.accel.sampleRate = 6;
 	// Accel cutoff freqeuncy can be any value between -1 - 3. 
 	// -1 = bandwidth determined by sample rate
 	// 0 = 408 Hz   2 = 105 Hz
@@ -112,13 +108,10 @@ void LSM9DS1::init()
 	// 1 = 1.25 Hz   5 = 20 Hz
 	// 2 = 2.5 Hz    6 = 40 Hz
 	// 3 = 5 Hz      7 = 80 Hz
-	settings.mag.sampleRate = 7;
 	settings.mag.tempCompensationEnable = false;
 	// magPerformance can be any value between 0-3
 	// 0 = Low power mode      2 = high performance
 	// 1 = medium performance  3 = ultra-high performance
-	settings.mag.XYPerformance = 3;
-	settings.mag.ZPerformance = 3;
 	settings.mag.lowPowerEnable = false;
 	// magOperatingMode can be 0-2
 	// 0 = continuous conversion
@@ -621,7 +614,7 @@ void LSM9DS1::readGyro()
 {
 	uint8_t temp[6]; // We'll read six bytes from the gyro into temp
 	if ( xgReadBytes(OUT_X_L_G, temp, 6) == 6) // Read 6 bytes, beginning at OUT_X_L_G
-	{	
+	{
 		gx = (temp[1] << 8) | temp[0]; // Store x-axis values into gx
 		gy = (temp[3] << 8) | temp[2]; // Store y-axis values into gy
 		gz = (temp[5] << 8) | temp[4]; // Store z-axis values into gz
@@ -1219,9 +1212,11 @@ uint8_t LSM9DS1::I2CreadBytes(uint8_t address, uint8_t subAddress, uint8_t * des
 	retVal = settings.device.i2c->endTransmission(false); // Send Tx buffer, send a restart to keep connection alive
 	if (retVal != 0) // endTransmission should return 0 on success
 		return 0;
+
 	retVal = settings.device.i2c->requestFrom(address, count);  // Read bytes from slave register address
 	if (retVal != count)
 		return 0;
+
 	for (int i=0; i<count;)
 		dest[i++] = settings.device.i2c->read();
 

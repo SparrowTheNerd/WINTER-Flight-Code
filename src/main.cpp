@@ -2,17 +2,22 @@
 #include <SdFat.h>
 #include "Kalman/KalmanFilter.h"
 #include "Sensors/Sensors.h"
-#include <BasicLinearAlgebra.h>
-using namespace BLA;
+//#include <BasicLinearAlgebra.h>
+#include <ArduinoEigenDense.h>
+//using namespace BLA;
+#define EIGEN_NO_DEBUG 1
+using namespace Eigen;
 
-#define latitude 42.262119f
+//#define latitude 42.262119f //worcester
+#define latitude 38.804661  //virginia
 void magCal();
+void print_matrix(const Eigen::MatrixXf &X);
 
 //Matrix<3,1> magCal_hard = {-0.f, 0.f, 0.f}; //hard and soft iron calibrations in WPI
-Matrix<3,1> magCal_hard = { -4061.74f, 1434.475f, -8685.29f};
-Matrix<3,3> magCal_soft = { 1.015f, 0.008f,-0.004f,
-                            0.033f, 0.990f,-0.002f,
-                           -0.004f,-0.002f, 0.996f};
+Vector<float,3> magCal_hard {{ -4061.74f, 1434.475f, -8685.29f}};
+Matrix<float,3,3> magCal_soft {{ 1.015f, 0.008f,-0.004f},
+                               { 0.033f, 0.990f,-0.002f},
+                               {-0.004f,-0.002f, 0.996f}};
 
 Sensors sens = Sensors(magCal_hard,magCal_soft);
 KalmanFilter kalman = KalmanFilter(sens, latitude);
@@ -30,19 +35,36 @@ void setup() {
 }
 
 void loop() {
-  while(!sens.IMU.gyroAvailable()) {   //wait for magnetometer data
+  while(!sens.IMU.gyroAvailable()) {   //wait for data
     delayMicroseconds(100);
   }
   sens.getData();
-  float dT = (float)(micros()-prevTime)/1000000.f;
+  float dT = (float)(micros()-prevTime)/1e6f;
   sens.dt = dT;
   prevTime = micros();
   
   kalman.filter(dT);
-  Serial << kalman.x;
-  Serial.println();
+  // Serial << kalman.x.format(CleanFmt);
+  print_matrix(kalman.x);
   sens.magAvail = false;
   sens.baroAvail = false;
+}
+
+void print_matrix(const Eigen::MatrixXf &X)  
+{
+  int nrow = X.rows();
+  int ncol = X.cols();
+  Serial.print("[");
+  for (int i=0; i<nrow; i++) {   
+    Serial.print("[");
+    for (int j=0; j<ncol; j++) {
+      Serial.print(X(i,j), 5);   // print 6 decimal places
+      if(j<ncol-1) Serial.print(",");
+    }
+    Serial.print("]");
+    if(i<nrow-1) Serial.print(",");
+  }
+  Serial.println("]");
 }
 
 void SystemClock_Config(void)

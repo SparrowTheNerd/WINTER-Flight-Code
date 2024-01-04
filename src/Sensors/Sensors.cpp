@@ -1,30 +1,32 @@
 #include "Sensors/Sensors.h"
-using namespace BLA;
+//using namespace BLA;
 
-Sensors::Sensors(Matrix<3> magHard, Matrix<3,3> magSoft) {
+Sensors::Sensors(Vector<float,3> magHard, Matrix<float,3,3> magSoft) {
   this->magCal_hard = magHard;
   this->magCal_soft = magSoft;
   magAvail = false; baroAvail = false;
 };
 
 void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and high-G accel
-  IMU.begin(0x6B,0x1E,Wire);
   IMU.settings.gyro.enabled = true;
   IMU.settings.gyro.scale = 500; //500dps
-  IMU.settings.gyro.sampleRate = 3; //119hz
+  IMU.settings.gyro.sampleRate = 5; //476hz
   IMU.settings.gyro.lowPowerEnable = false;
   IMU.settings.gyro.HPFEnable = false;
 
   IMU.settings.accel.enabled = true;
   IMU.settings.accel.scale = 16;    //16G
-  IMU.settings.accel.sampleRate = 3; //119hz
+  IMU.settings.accel.sampleRate = 5; //476hz
 
   IMU.settings.mag.enabled = true;
   IMU.settings.mag.scale = 4;     //4 Gauss
   IMU.settings.mag.ZPerformance = 3; 
+
+  IMU.begin(0x6B,0x1E,Wire);
+
   Wire.beginTransmission(0x1E);   //set fast ODR and configure for 155hz as in https://community.st.com/t5/mems-sensors/lsm9ds1-data-sheet-says-that-the-fast-odr-mode-enables/m-p/334058
   Wire.write(0x20);
-  Wire.write(0b01110010);
+  Wire.write(0b00110010);
   Wire.endTransmission();
 
   IMU_HighG.begin();    //highG needs to be looked at, values are weird
@@ -100,19 +102,19 @@ void Sensors::getData() {
   //baroData();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
-    gX = -DEG_TO_RAD*(IMU.calcGyro(IMU.gx) - xOfst);
-    gY = DEG_TO_RAD*(IMU.calcGyro(IMU.gy) - yOfst);
-    gZ = DEG_TO_RAD*(IMU.calcGyro(IMU.gz) - zOfst);
+    gX = (IMU.calcGyro(IMU.gx) - xOfst)/180.f;    //for some godforsaken reason the gyro is in some nonexistent unit 2*pi*deg/s
+    gY = (IMU.calcGyro(IMU.gy) - yOfst)/180.f;
+    gZ = -(IMU.calcGyro(IMU.gz) - zOfst)/180.f;
   }
-  // if (IMU.accelAvailable()) {
-  //   IMU.readAccel();
-  //   aX = -IMU.calcAccel(IMU.ax)*9.80665;
-  //   aY = IMU.calcAccel(IMU.ay)*9.80665;
-  //   aZ = IMU.calcAccel(IMU.az)*9.80665;
-  // }
+  if (IMU.accelAvailable()) {
+    IMU.readAccel();
+    aX = IMU.calcAccel(IMU.ax)*9.80665;
+    aY = IMU.calcAccel(IMU.ay)*9.80665;
+    aZ = -IMU.calcAccel(IMU.az)*9.80665;
+  }
   if (IMU.magAvailable()) {
     IMU.readMag();
-    Matrix<3> mag = magCal_soft * Matrix<3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+    Vector<float,3> mag = magCal_soft * Vector<float,3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
     mX = IMU.calcMag(mag(0));
     mY = IMU.calcMag(mag(1));
     mZ = IMU.calcMag(mag(2));
@@ -137,7 +139,6 @@ void Sensors::getData() {
       mY = filtered_mY;
       mZ = filtered_mZ;
     }
-    else { magFilter = true; }
     float magMag = sqrtf(mX*mX+mY*mY+mZ*mZ);  //normalize magnetometer reading
     mX /= magMag; mY /= magMag; mZ /= magMag;
     magAvail = true;

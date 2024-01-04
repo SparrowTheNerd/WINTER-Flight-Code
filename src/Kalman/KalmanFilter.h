@@ -1,9 +1,11 @@
 #pragma once
 
 #include <Arduino.h>
-#include <BasicLinearAlgebra.h>
+//#include <BasicLinearAlgebra.h>
 #include "Sensors/Sensors.h"
-using namespace BLA;
+#include <ArduinoEigenDense.h>
+using namespace Eigen;
+//using namespace BLA;
 
 class KalmanFilter {
 	public:
@@ -14,29 +16,30 @@ class KalmanFilter {
 		KalmanFilter(Sensors &sens, float latitude);
 		void init();
 		void filter(float dT);
-		Matrix<4> x;
+		Vector<float,4> x;
+		Matrix4f F;
 
 	private:
 		Sensors &sens;
-		Matrix<4> x_prior;
-		Matrix<4,4> F;
-		Matrix<3> w;
-		Matrix<4,4> Q; //process noise covariance
-		Matrix<4,4> P; //state covariance
-		Matrix<4,4> P_prior; //previous state covariance estimate
-		Matrix<3> m; //magnetometer
-		Matrix<3> mBase; //magnetometer base vector
-		Matrix<3,3> R;	//measurement noise covariance
-		Matrix<3> z; //measurement
-		Matrix<3> h; //measurement model
-		Matrix<3,4> H; //measurement model jacobian
-		Matrix<4,4> I4; //the 4x4 identity matrix
-		Matrix<3> v; //innovation
-		Matrix<3,3> S; //innovation covariance
-		Matrix<4,3> K; //kalman gain		
-		Matrix<3> rotate(quaternion q, Matrix<3> w);
+		Vector<float,4> x_pred;	//predicted state estimate
+		
+		Vector3f w;	//angular velocity in rads/s
+		Matrix4f W; //process noise jacobian
+		Matrix4f Q; //process noise covariance
+		Matrix4f P; //state covariance
+		Matrix4f P_pred; //predicted state covariance
+		Vector3f m; //magnetometer
+		Vector3f mBase; //magnetometer base vector
+		Matrix3f R;	//measurement noise covariance
+		Vector3f z; //measurement
+		Vector3f h; //measurement model
+		Matrix<float,3,4> H; //measurement model jacobian
+		Matrix4f I4; //the 4x4 identity matrix
+		Vector3f v; //innovation
+		Matrix3f S; //innovation covariance
+		Matrix<float,4,3> K; //kalman gain		
+		Vector3f rotate(Vector<float,4> A, Vector3f w);
 		void predict(float dT);
-		void update();
+		void correct();
 		float dipAngle;
-
 };

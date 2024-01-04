@@ -3,12 +3,15 @@
 #include <SparkFunLSM9DS1.h>
 #include <Adafruit_ADXL375.h>
 #include <MS5xxx.h>
-#include <BasicLinearAlgebra.h>
-using namespace BLA;
+#include <ArduinoEigenDense.h>
+using Eigen::Matrix;
+using Eigen::Vector;
+//#include <BasicLinearAlgebra.h>
+//using namespace BLA;
 
 class Sensors{
 	public:
-		Sensors( Matrix<3> magHard, Matrix<3,3> magSoft);
+		Sensors( Vector<float,3> magHard, Matrix<float,3,3> magSoft);
 		void init();
 		void getData();
 		void baroData();
@@ -18,8 +21,8 @@ class Sensors{
 		uint32_t timeBaro;
 		bool baroAvail;
 		bool magAvail;
-		Matrix<3> magCal_hard;
-		Matrix<3,3> magCal_soft;
+		Vector<float,3> magCal_hard;
+		Matrix<float,3,3> magCal_soft;
 		LSM9DS1 IMU;
 		float dt;
 		float prev_mX, prev_mY, prev_mZ, prev_filtered_mX, prev_filtered_mY, prev_filtered_mZ;
