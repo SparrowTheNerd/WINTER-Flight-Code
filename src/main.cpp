@@ -8,18 +8,22 @@
 #define EIGEN_NO_DEBUG 1
 using namespace Eigen;
 
-//#define latitude 42.262119f //worcester
-#define latitude 38.804661  //virginia
+#define latitude 42.262119f //worcester
+//#define latitude 38.804661  //virginia
 void magCal();
 void print_matrix(const Eigen::MatrixXf &X);
 
 //Matrix<3,1> magCal_hard = {-0.f, 0.f, 0.f}; //hard and soft iron calibrations in WPI
-Vector<float,3> magCal_hard {{ -4061.74f, 1434.475f, -8685.29f}};
-Matrix<float,3,3> magCal_soft {{ 1.015f, 0.008f,-0.004f},
-                               { 0.033f, 0.990f,-0.002f},
-                               {-0.004f,-0.002f, 0.996f}};
-
-Sensors sens = Sensors(magCal_hard,magCal_soft);
+// Vector<float,3> magCal_hard {{ -4061.74f, 1434.475f, -8685.29f}};
+// Matrix<float,3,3> magCal_soft {{ 1.015f, 0.008f,-0.004f},
+//                                { 0.033f, 0.990f,-0.002f},
+//                                {-0.004f,-0.002f, 0.996f}};   //virginia
+Vector3f magCal_hard = {2.24222e3f, 1.0018e3f, 0.9265e3f}; //hard and soft iron calibrations from matlab
+Matrix<float,3,3> magCal_soft   {{ 0.9846f, 0.0401f,-0.0099f},
+                                 { 0.0401f, 0.9890f,-0.0099f},
+                                 {-0.0099f,-0.0099f, 1.0288}};  //worcester
+Vector3f accelBias {-0.1587, 0.0346, -0.5615};
+Sensors sens = Sensors(magCal_hard,magCal_soft, accelBias);
 KalmanFilter kalman = KalmanFilter(sens, latitude);
 
 uint32_t prevTime;
@@ -44,7 +48,6 @@ void loop() {
   prevTime = micros();
   
   kalman.filter(dT);
-  // Serial << kalman.x.format(CleanFmt);
   print_matrix(kalman.x);
   sens.magAvail = false;
   sens.baroAvail = false;

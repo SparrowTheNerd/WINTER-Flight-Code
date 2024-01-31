@@ -1,9 +1,11 @@
 #include "Sensors/Sensors.h"
 //using namespace BLA;
+using namespace Eigen;
 
-Sensors::Sensors(Vector<float,3> magHard, Matrix<float,3,3> magSoft) {
+Sensors::Sensors(Vector3f magHard, Matrix3f magSoft, Vector3f aBias) {
   this->magCal_hard = magHard;
   this->magCal_soft = magSoft;
+  this->accelBias = aBias;
   magAvail = false; baroAvail = false;
 };
 
@@ -20,13 +22,16 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
 
   IMU.settings.mag.enabled = true;
   IMU.settings.mag.scale = 4;     //4 Gauss
-  IMU.settings.mag.ZPerformance = 3; 
 
   IMU.begin(0x6B,0x1E,Wire);
 
-  Wire.beginTransmission(0x1E);   //set fast ODR and configure for 155hz as in https://community.st.com/t5/mems-sensors/lsm9ds1-data-sheet-says-that-the-fast-odr-mode-enables/m-p/334058
+  Wire.beginTransmission(0x1E);   //set fast ODR and configure for 560hz as in https://community.st.com/t5/mems-sensors/lsm9ds1-data-sheet-says-that-the-fast-odr-mode-enables/m-p/334058
   Wire.write(0x20);
   Wire.write(0b00110010);
+  Wire.endTransmission();
+  Wire.beginTransmission(0x1E);
+  Wire.write(0x23);
+  Wire.write(0b00000100);
   Wire.endTransmission();
 
   IMU_HighG.begin();    //highG needs to be looked at, values are weird
@@ -36,7 +41,7 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
 
   Wire.setClock(400000);
 
-  float xcal = 0, ycal = 0, zcal = 0;
+  float xcal = 0, ycal = 0, zcal = 0, magMag = 0, mbaseX = 0, mbaseY = 0, mbaseZ = 0, abaseX = 0, abaseY = 0, abaseZ = 0;
   for(int i = 0; i < 250; i++) {
     while (!IMU.gyroAvailable()) {delay(1);};
     IMU.readGyro();
@@ -44,7 +49,24 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
     gY = (IMU.calcGyro(IMU.gy) );
     gZ = (IMU.calcGyro(IMU.gz) );
     xcal += gX; ycal += gY; zcal += gZ;
+
+    IMU.readMag();
+    mag = magCal_soft * Vector<float,3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+    mX = -IMU.calcMag(mag(0));
+    mY = IMU.calcMag(mag(1));
+    mZ = -IMU.calcMag(mag(2));
+    magMag = sqrtf(mX*mX+mY*mY+mZ*mZ);  //normalize magnetometer reading
+    mX /= magMag; mY /= magMag; mZ /= magMag;
+    mbaseX += mX; mbaseY += mY; mbaseZ += mZ;
+
+    IMU.readAccel();
+    aX = IMU.calcAccel(IMU.ax)*9.80665-accelBias(0);
+    aY = IMU.calcAccel(IMU.ay)*9.80665-accelBias(1);
+    aZ = -IMU.calcAccel(IMU.az)*9.80665-accelBias(2);
+    abaseX += aX; abaseY += aY; abaseZ += aZ;
   }
+  magBase = {mbaseX/250.f,mbaseY/250.f,mbaseZ/250.f};
+  aBase = {abaseX/250.f,abaseY/250.f,abaseZ/250.f};
   xOfst = xcal/250.f; yOfst = ycal/250.f; zOfst = zcal/250.f;
   Serial.println("calibrated!");
 }
@@ -102,22 +124,23 @@ void Sensors::getData() {
   //baroData();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
-    gX = (IMU.calcGyro(IMU.gx) - xOfst)/180.f;    //for some godforsaken reason the gyro is in some nonexistent unit 2*pi*deg/s
+    gX = (IMU.calcGyro(IMU.gx) - xOfst)/180.f;    //for some godforsaken reason the gyro is in some nonexistent unit pi*deg/s
     gY = (IMU.calcGyro(IMU.gy) - yOfst)/180.f;
     gZ = -(IMU.calcGyro(IMU.gz) - zOfst)/180.f;
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
-    aX = IMU.calcAccel(IMU.ax)*9.80665;
-    aY = IMU.calcAccel(IMU.ay)*9.80665;
-    aZ = -IMU.calcAccel(IMU.az)*9.80665;
+    aX = IMU.calcAccel(IMU.ax)*9.80665-accelBias(0);
+    aY = IMU.calcAccel(IMU.ay)*9.80665-accelBias(1);
+    aZ = -IMU.calcAccel(IMU.az)*9.80665-accelBias(2);
   }
   if (IMU.magAvailable()) {
     IMU.readMag();
-    Vector<float,3> mag = magCal_soft * Vector<float,3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
-    mX = IMU.calcMag(mag(0));
+    mag = magCal_soft * Vector<float,3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+    mX = -IMU.calcMag(mag(0));
     mY = IMU.calcMag(mag(1));
-    mZ = IMU.calcMag(mag(2));
+    mZ = -IMU.calcMag(mag(2));
+    // Serial.print(mX,5); Serial.print(", "); Serial.print(mY,5); Serial.print(", "); Serial.println(mZ,5);
 
     if(magFilter) {
       // Apply Butterworth filter

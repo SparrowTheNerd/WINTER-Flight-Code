@@ -30,6 +30,9 @@ class KalmanFilter {
 		Matrix4f P_pred; //predicted state covariance
 		Vector3f m; //magnetometer
 		Vector3f mBase; //magnetometer base vector
+		Vector3f mInit; //initial magnetometer vector
+		Vector3f aBase; //accelerometer base vector
+		Vector3f aInit; //initial accelerometer vector
 		Matrix3f R;	//measurement noise covariance
 		Vector3f z; //measurement
 		Vector3f h; //measurement model
@@ -39,6 +42,8 @@ class KalmanFilter {
 		Matrix3f S; //innovation covariance
 		Matrix<float,4,3> K; //kalman gain		
 		Vector3f rotate(Vector<float,4> A, Vector3f w);
+		Vector3f invRotate(Vector<float,4> A, Vector3f w);
+		int sign(float x);
 		void predict(float dT);
 		void correct();
 		float dipAngle;
