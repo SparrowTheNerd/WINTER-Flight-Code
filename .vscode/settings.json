@@ -8,7 +8,16 @@
         "tuple": "cpp",
         "type_traits": "cpp",
         "utility": "cpp",
-        "cmath": "cpp"
+        "cmath": "cpp",
+        "core": "cpp",
+        "dense": "cpp",
+        "vector": "cpp",
+        "iosfwd": "cpp",
+        "istream": "cpp",
+        "optional": "cpp",
+        "ostream": "cpp",
+        "functional": "cpp",
+        "geometry": "cpp"
     },
-    "cmake.sourceDirectory": "C:/Users/Arjun/Documents/GitHub/WINTER-Flight-Code/.pio/libdeps/genericSTM32F446RE/Adafruit BusIO"
+    "C_Cpp.default.compilerPath": "c:\\Users\\thewo\\.platformio\\packages\\toolchain-gccarmnoneeabi\\bin\\arm-none-eabi-gcc.exe"
 }

@@ -2,85 +2,72 @@
 #include <SdFat.h>
 #include "Kalman/KalmanFilter.h"
 #include "Sensors/Sensors.h"
+//#include <BasicLinearAlgebra.h>
+#include <ArduinoEigenDense.h>
+//using namespace BLA;
+#define EIGEN_NO_DEBUG 1
+using namespace Eigen;
 
-#define BZR     PC8
-#define CS_SD   PC0
-//measurement stddevs
-#define stddev_xl   (float)0.180   //180 milli G's from LSM9DS1 datasheet
-#define stddev_gy   (float)2.0     //2 deg/s, roughly measured
-#define stddev_mg   (float)1.0     //1 Gauss from LSM9DS1 datasheet, will improve post calibration
-#define stddev_ps   (float)3.05     //400Pa, around 10ft (3.05m) from MS5607 datasheet
-
-SdFat SD;
-File file;
-
-uint32_t Time;
-bool magAvail;  //is there mag data available?
-bool baroAvail = false; //is there baro data available?
-char fileName[] = "FLIGHTDATA00.bin";
-float dT;
-struct sensData {   
-  float time, gX, gY, gZ, aX, aY, aZ, mX, mY, mZ, prs, tmp;
-} data;
-
-
-Matrix<3,1> magCal_hard = {-2808.f, 3911.f, 4526.f}; //hard and soft iron calibrations
-Matrix<3,3> magCal_soft = { 0.985f, 0.033f,-0.010f,
-                            0.033f, 1.005f, 0.017f,
-                           -0.010f, 0.008f, 1.011f};
-
-float degToRad(float deg) {
-  return deg*DEG_TO_RAD;
-}
-float radToDeg(float rad) {
-  return rad*RAD_TO_DEG;
-}
-
-Sensors sens = Sensors(magCal_hard,magCal_soft);
-KalmanFilter kalman = KalmanFilter(sens);
+#define latitude 42.262119f //worcester
+//#define latitude 38.804661  //virginia
 void magCal();
-void setup() {
-  pinMode(BZR,OUTPUT);
-  analogWriteResolution(16);  //set pwm resolution to 16 bit (0-65535)
-  analogWriteFrequency(1000); //set pwm frequency to 1KHz
+void print_matrix(const Eigen::MatrixXf &X);
 
+//Matrix<3,1> magCal_hard = {-0.f, 0.f, 0.f}; //hard and soft iron calibrations in WPI
+// Vector<float,3> magCal_hard {{ -4061.74f, 1434.475f, -8685.29f}};
+// Matrix<float,3,3> magCal_soft {{ 1.015f, 0.008f,-0.004f},
+//                                { 0.033f, 0.990f,-0.002f},
+//                                {-0.004f,-0.002f, 0.996f}};   //virginia
+Vector3f magCal_hard = {2.24222e3f, 1.0018e3f, 0.9265e3f}; //hard and soft iron calibrations from matlab
+Matrix<float,3,3> magCal_soft   {{ 0.9846f, 0.0401f,-0.0099f},
+                                 { 0.0401f, 0.9890f,-0.0099f},
+                                 {-0.0099f,-0.0099f, 1.0288}};  //worcester
+Vector3f accelBias {-0.1587, 0.0346, -0.5615};
+Sensors sens = Sensors(magCal_hard,magCal_soft, accelBias);
+KalmanFilter kalman = KalmanFilter(sens, latitude);
+
+uint32_t prevTime;
+
+void setup() {
   SerialUSB.begin(); //start serial port
   while(!SerialUSB);
 
   Wire.begin(uint32_t(PB9_ALT0),uint32_t(PB8_ALT0));
-
-  sens.init();    //initialize sensors
-  sens.timeBaro = micros();
-  kalman.init(stddev_mg, stddev_ps);
-  Serial << kalman.x;
-  Time = micros();
-  delay(1);
+  sens.init();
+  kalman.init();
+  prevTime = micros();
 }
 
-int counter = 0;
 void loop() {
-  dT = (float)(micros()-Time)/1000000.;
-  Time = micros();
+  while(!sens.IMU.gyroAvailable()) {   //wait for data
+    delayMicroseconds(100);
+  }
   sens.getData();
+  float dT = (float)(micros()-prevTime)/1e6f;
+  sens.dt = dT;
+  prevTime = micros();
+  
   kalman.filter(dT);
-  //magCal();
-  sens.magAvail = false; sens.baroAvail = false;  //reset sensor availability before next loop
-  //Serial << kalman.x; Serial.println();
+  print_matrix(kalman.x);
+  sens.magAvail = false;
+  sens.baroAvail = false;
 }
 
-// void writeToSD() {
-//   file.write((uint8_t *)&data,sizeof(data)/sizeof(uint8_t));
-// }
-
-void sdInit() {     //initialize SD card and filename
-  SD.begin(CS_SD, SPI_FULL_SPEED);
-  for (uint8_t i = 0; i < 100; i++) {
-    fileName[10] = i/10 + '0';
-    fileName[11] = i%10 + '0';
-    if (SD.exists(fileName)) continue;
-    file.open(fileName);
-    break;
+void print_matrix(const Eigen::MatrixXf &X)  
+{
+  int nrow = X.rows();
+  int ncol = X.cols();
+  Serial.print("[");
+  for (int i=0; i<nrow; i++) {   
+    Serial.print("[");
+    for (int j=0; j<ncol; j++) {
+      Serial.print(X(i,j), 5);   // print 6 decimal places
+      if(j<ncol-1) Serial.print(",");
+    }
+    Serial.print("]");
+    if(i<nrow-1) Serial.print(",");
   }
+  Serial.println("]");
 }
 
 void SystemClock_Config(void)
@@ -125,15 +112,15 @@ void SystemClock_Config(void)
   }
 }
 
-// void magCal() {   //for use with MotionCal software
-//   Serial.print("Raw:"); //Serial.print("0,0,0,0,0,0,");
-//   Serial.print((int)((sens.aX)/8)); Serial.print(",");
-//   Serial.print((int)((sens.aY)/8)); Serial.print(",");
-//   Serial.print((int)((sens.aZ)/8)); Serial.print(",");
-//   Serial.print((int)((sens.gX)/8-20)); Serial.print(",");
-//   Serial.print((int)((sens.gY)/8-18)); Serial.print(",");
-//   Serial.print((int)((sens.gZ)/8-8)); Serial.print(",");
-//   Serial.print((int)((sens.mX)/8)); Serial.print(",");
-//   Serial.print((int)((sens.mY)/8)); Serial.print(",");
-//   Serial.print((int)((sens.mZ)/8)); Serial.println("");
-// }
+void magCal() {   //for use with MotionCal software
+  Serial.print("Raw:"); //Serial.print("0,0,0,0,0,0,");
+  Serial.print((sens.IMU.ax)/8); Serial.print(",");
+  Serial.print((sens.IMU.ay)/8); Serial.print(",");
+  Serial.print((sens.IMU.az)/8); Serial.print(",");
+  Serial.print((sens.IMU.gx-140)/8); Serial.print(",");
+  Serial.print((sens.IMU.gy-95)/8); Serial.print(",");
+  Serial.print((sens.IMU.gz-70)/8); Serial.print(",");
+  Serial.print((sens.IMU.mx)/8); Serial.print(",");
+  Serial.print((sens.IMU.my)/8); Serial.print(",");
+  Serial.print((sens.IMU.mz)/8); Serial.println("");
+}

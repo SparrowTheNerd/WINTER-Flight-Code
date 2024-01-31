@@ -1,15 +1,17 @@
 #include "Sensors/Sensors.h"
-using namespace BLA;
+//using namespace BLA;
+using namespace Eigen;
 
-Sensors::Sensors(Matrix<3> magHard, Matrix<3,3> magSoft) {
-    this->magCal_hard = magHard;
-    this->magCal_soft = magSoft;
+Sensors::Sensors(Vector3f magHard, Matrix3f magSoft, Vector3f aBias) {
+  this->magCal_hard = magHard;
+  this->magCal_soft = magSoft;
+  this->accelBias = aBias;
+  magAvail = false; baroAvail = false;
 };
 
 void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and high-G accel
-  IMU.begin(0x6B,0x1E,Wire);
   IMU.settings.gyro.enabled = true;
-  IMU.settings.gyro.scale = 500; //2000dps
+  IMU.settings.gyro.scale = 500; //500dps
   IMU.settings.gyro.sampleRate = 5; //476hz
   IMU.settings.gyro.lowPowerEnable = false;
   IMU.settings.gyro.HPFEnable = false;
@@ -20,10 +22,17 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
 
   IMU.settings.mag.enabled = true;
   IMU.settings.mag.scale = 4;     //4 Gauss
-  IMU.settings.mag.sampleRate = 7;    //80hz
-  IMU.settings.mag.XYPerformance = 3;   //high performance & continuous
-  IMU.settings.mag.ZPerformance = 3;
-  IMU.settings.mag.operatingMode = 0;
+
+  IMU.begin(0x6B,0x1E,Wire);
+
+  Wire.beginTransmission(0x1E);   //set fast ODR and configure for 560hz as in https://community.st.com/t5/mems-sensors/lsm9ds1-data-sheet-says-that-the-fast-odr-mode-enables/m-p/334058
+  Wire.write(0x20);
+  Wire.write(0b00110010);
+  Wire.endTransmission();
+  Wire.beginTransmission(0x1E);
+  Wire.write(0x23);
+  Wire.write(0b00000100);
+  Wire.endTransmission();
 
   IMU_HighG.begin();    //highG needs to be looked at, values are weird
 
@@ -32,15 +41,34 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
 
   Wire.setClock(400000);
 
-  float xCal, yCal, zCal;
-  for (int i = 0; i < 500; i++) {
-    while(!IMU.gyroAvailable()) {delayMicroseconds(500); };
+  float xcal = 0, ycal = 0, zcal = 0, magMag = 0, mbaseX = 0, mbaseY = 0, mbaseZ = 0, abaseX = 0, abaseY = 0, abaseZ = 0;
+  for(int i = 0; i < 250; i++) {
+    while (!IMU.gyroAvailable()) {delay(1);};
     IMU.readGyro();
-    xCal += (IMU.calcGyro(IMU.gx));
-    yCal += (IMU.calcGyro(IMU.gy));
-    zCal += (IMU.calcGyro(IMU.gz));   
+    gX = (IMU.calcGyro(IMU.gx) );
+    gY = (IMU.calcGyro(IMU.gy) );
+    gZ = (IMU.calcGyro(IMU.gz) );
+    xcal += gX; ycal += gY; zcal += gZ;
+
+    IMU.readMag();
+    mag = magCal_soft * Vector<float,3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+    mX = -IMU.calcMag(mag(0));
+    mY = IMU.calcMag(mag(1));
+    mZ = -IMU.calcMag(mag(2));
+    magMag = sqrtf(mX*mX+mY*mY+mZ*mZ);  //normalize magnetometer reading
+    mX /= magMag; mY /= magMag; mZ /= magMag;
+    mbaseX += mX; mbaseY += mY; mbaseZ += mZ;
+
+    IMU.readAccel();
+    aX = IMU.calcAccel(IMU.ax)*9.80665-accelBias(0);
+    aY = IMU.calcAccel(IMU.ay)*9.80665-accelBias(1);
+    aZ = -IMU.calcAccel(IMU.az)*9.80665-accelBias(2);
+    abaseX += aX; abaseY += aY; abaseZ += aZ;
   }
-  xOfst = xCal/500.f; yOfst = yCal/500.f; zOfst = zCal/500.f;
+  magBase = {mbaseX/250.f,mbaseY/250.f,mbaseZ/250.f};
+  aBase = {abaseX/250.f,abaseY/250.f,abaseZ/250.f};
+  xOfst = xcal/250.f; yOfst = ycal/250.f; zOfst = zcal/250.f;
+  Serial.println("calibrated!");
 }
 
 void Sensors::baroData() {
@@ -87,31 +115,55 @@ void Sensors::baroData() {
       }
   }
 }
+
+float cutoff_freq = 50.0f;  // Cutoff frequency in Hz
+float RC = 1.0/(2*PI*cutoff_freq);
+
+
 void Sensors::getData() {
-  baroData();
+  //baroData();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
-    gX = DEG_TO_RAD*(IMU.calcGyro(IMU.gx) - xOfst);
-    gY = DEG_TO_RAD*(IMU.calcGyro(IMU.gy) - yOfst);
-    gZ = DEG_TO_RAD*(IMU.calcGyro(IMU.gz) - zOfst);
-    // gX = IMU.gx; gY = IMU.gy; gZ = IMU.gz;
+    gX = (IMU.calcGyro(IMU.gx) - xOfst)/180.f;    //for some godforsaken reason the gyro is in some nonexistent unit pi*deg/s
+    gY = (IMU.calcGyro(IMU.gy) - yOfst)/180.f;
+    gZ = -(IMU.calcGyro(IMU.gz) - zOfst)/180.f;
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
-    aX = IMU.calcAccel(IMU.ax)*9.80665 + 0.0635;
-    aY = IMU.calcAccel(IMU.ay)*9.80665 - 0.1735;
-    aZ = IMU.calcAccel(IMU.az)*9.80665 + 0.20075;
-    // aX = IMU.ax; aY = IMU.ay; aZ = IMU.az;
-    //Serial.print(aX,3); Serial.print(", "); Serial.print(aY,3); Serial.print(", "); Serial.println(aZ+9.80665,3);
+    aX = IMU.calcAccel(IMU.ax)*9.80665-accelBias(0);
+    aY = IMU.calcAccel(IMU.ay)*9.80665-accelBias(1);
+    aZ = -IMU.calcAccel(IMU.az)*9.80665-accelBias(2);
   }
-  if (IMU.magAvailable()) {   //using mag calibration, eq ref https://www.digikey.com/en/maker/projects/how-to-calibrate-a-magnetometer/50f6bc8f36454a03b664dca30cf33a8b
+  if (IMU.magAvailable()) {
     IMU.readMag();
-    Matrix<3> hardCal = {IMU.calcMag(IMU.mx-magCal_hard(0)),IMU.calcMag(IMU.my-magCal_hard(1)),IMU.calcMag(IMU.mz-magCal_hard(2))};
-    Matrix<3> mag = magCal_soft * hardCal;
-    mX = -(mag(0));
-    mY = (mag(1));
-    mZ = (mag(2));
-    //mX = IMU.mx; mY = IMU.my; mZ = IMU.mz;
+    mag = magCal_soft * Vector<float,3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
+    mX = -IMU.calcMag(mag(0));
+    mY = IMU.calcMag(mag(1));
+    mZ = -IMU.calcMag(mag(2));
+    // Serial.print(mX,5); Serial.print(", "); Serial.print(mY,5); Serial.print(", "); Serial.println(mZ,5);
+
+    if(magFilter) {
+      // Apply Butterworth filter
+      float alpha = dt/(RC+dt);
+      float filtered_mX = alpha * mX + (1 - alpha) * prev_filtered_mX + alpha * (prev_mX - mX);
+      float filtered_mY = alpha * mY + (1 - alpha) * prev_filtered_mY + alpha * (prev_mY - mY);
+      float filtered_mZ = alpha * mZ + (1 - alpha) * prev_filtered_mZ + alpha * (prev_mZ - mZ);
+
+      // Store current readings for the next iteration
+      prev_mX = mX;
+      prev_mY = mY;
+      prev_mZ = mZ;
+      prev_filtered_mX = filtered_mX;
+      prev_filtered_mY = filtered_mY;
+      prev_filtered_mZ = filtered_mZ;
+
+      // Use filtered readings
+      mX = filtered_mX;
+      mY = filtered_mY;
+      mZ = filtered_mZ;
+    }
+    float magMag = sqrtf(mX*mX+mY*mY+mZ*mZ);  //normalize magnetometer reading
+    mX /= magMag; mY /= magMag; mZ /= magMag;
     magAvail = true;
   }
 }
