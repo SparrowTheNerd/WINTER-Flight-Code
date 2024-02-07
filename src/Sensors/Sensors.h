@@ -10,7 +10,7 @@ using namespace Eigen;
 
 class Sensors{
 	public:
-		Sensors( Vector3f magHard, Matrix3f magSoft, Vector3f aBias);
+		Sensors( Vector3f magHard, Matrix3f magSoft, Vector3f accelHard, Matrix3f accelSoft);
 		void init();
 		void getData();
 		void baroData();
@@ -25,6 +25,8 @@ class Sensors{
 		bool magAvail;
 		Vector3f magCal_hard;
 		Matrix3f magCal_soft;
+		Vector3f accelHard;
+		Matrix3f accelSoft;
 		LSM9DS1 IMU;
 		float dt;
 		float prev_mX, prev_mY, prev_mZ, prev_filtered_mX, prev_filtered_mY, prev_filtered_mZ;
@@ -34,6 +36,7 @@ class Sensors{
 		Adafruit_ADXL375 IMU_HighG = Adafruit_ADXL375(1,&Wire);
 		MS5xxx barometer = MS5xxx(&Wire);
 		Vector<float,3> mag;
+		Vector3f accel;
 		
 		int baroStep;
 		unsigned long d1, d2;

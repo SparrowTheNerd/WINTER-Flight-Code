@@ -2,10 +2,11 @@
 //using namespace BLA;
 using namespace Eigen;
 
-Sensors::Sensors(Vector3f magHard, Matrix3f magSoft, Vector3f aBias) {
+Sensors::Sensors(Vector3f magHard, Matrix3f magSoft, Vector3f accelHard, Matrix3f accelSoft) {
   this->magCal_hard = magHard;
   this->magCal_soft = magSoft;
-  this->accelBias = aBias;
+  this->accelHard = accelHard;
+  this->accelSoft = accelSoft;
   magAvail = false; baroAvail = false;
 };
 
@@ -41,6 +42,20 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
 
   Wire.setClock(400000);
 
+/**  ==== COORDINATE TRANSFORMATIONS ====
+ * Assume SMA connector is up, and logo points toward viewer
+ * The accelerometer and gyro are mounted on the rocket with the following coordinate system:
+ * X up, Y left, Z away from the viewer
+ * The magnetometer is mounted on the rocket with the following coordinate system:
+ * X down, Y left, Z away from the viewer
+ * 
+ * We want the NED frame, where X is north (away from viewer), Y is east (right), and Z is down
+ * For gyro and accel, notated as old -> new:
+ * X -> -Z, Z -> X, Y -> -Y
+ * For mag, notated as old -> new:
+ * X -> Z, Z -> X, Y -> -Y
+*/
+
   float xcal = 0, ycal = 0, zcal = 0, magMag = 0, mbaseX = 0, mbaseY = 0, mbaseZ = 0, abaseX = 0, abaseY = 0, abaseZ = 0;
   for(int i = 0; i < 250; i++) {
     while (!IMU.gyroAvailable()) {delay(1);};
@@ -52,23 +67,23 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
 
     IMU.readMag();
     mag = magCal_soft * Vector<float,3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
-    mX = -IMU.calcMag(mag(0));
-    mY = IMU.calcMag(mag(1));
-    mZ = -IMU.calcMag(mag(2));
+    mZ = IMU.calcMag(mag(0));
+    mY = -IMU.calcMag(mag(1));
+    mX = IMU.calcMag(mag(2));
     magMag = sqrtf(mX*mX+mY*mY+mZ*mZ);  //normalize magnetometer reading
     mX /= magMag; mY /= magMag; mZ /= magMag;
     mbaseX += mX; mbaseY += mY; mbaseZ += mZ;
 
     IMU.readAccel();
-    aX = IMU.calcAccel(IMU.ax)*9.80665-accelBias(0);
-    aY = IMU.calcAccel(IMU.ay)*9.80665-accelBias(1);
-    aZ = -IMU.calcAccel(IMU.az)*9.80665-accelBias(2);
+    accel = accelSoft * (Vector<float,3> {IMU.calcAccel(IMU.az)*9.80665f-accelHard(0),-IMU.calcAccel(IMU.ay)*9.80665f-accelHard(1),-IMU.calcAccel(IMU.ax)*9.80665f-accelHard(2)});
+    aX = accel(0);
+    aY = accel(1);
+    aZ = accel(2);
     abaseX += aX; abaseY += aY; abaseZ += aZ;
   }
   magBase = {mbaseX/250.f,mbaseY/250.f,mbaseZ/250.f};
   aBase = {abaseX/250.f,abaseY/250.f,abaseZ/250.f};
   xOfst = xcal/250.f; yOfst = ycal/250.f; zOfst = zcal/250.f;
-  Serial.println("calibrated!");
 }
 
 void Sensors::baroData() {
@@ -124,23 +139,27 @@ void Sensors::getData() {
   //baroData();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
-    gX = (IMU.calcGyro(IMU.gx) - xOfst)/180.f;    //for some godforsaken reason the gyro is in some nonexistent unit pi*deg/s
-    gY = (IMU.calcGyro(IMU.gy) - yOfst)/180.f;
-    gZ = -(IMU.calcGyro(IMU.gz) - zOfst)/180.f;
+    gZ = -(IMU.calcGyro(IMU.gx) - xOfst)/180.f;    //for some godforsaken reason the gyro is in some nonexistent unit pi*deg/s
+    gY = -(IMU.calcGyro(IMU.gy) - yOfst)/180.f;
+    gX = (IMU.calcGyro(IMU.gz) - zOfst)/180.f;
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
-    aX = IMU.calcAccel(IMU.ax)*9.80665-accelBias(0);
-    aY = IMU.calcAccel(IMU.ay)*9.80665-accelBias(1);
-    aZ = -IMU.calcAccel(IMU.az)*9.80665-accelBias(2);
+    // accel = accelSoft * (Vector<float,3> {IMU.calcAccel(IMU.az)*9.80665f-accelHard(0),-IMU.calcAccel(IMU.ay)*9.80665f-accelHard(1),-IMU.calcAccel(IMU.ax)*9.80665f-accelHard(2)});
+    // aX = accel(0);
+    // aY = accel(1);
+    // aZ = accel(2);
+    aZ = -IMU.calcAccel(IMU.ax)*9.80665f-accelHard(0);
+    aY = -IMU.calcAccel(IMU.ay)*9.80665f-accelHard(1);
+    aX = IMU.calcAccel(IMU.az)*9.80665f-accelHard(2);
+    
   }
   if (IMU.magAvailable()) {
     IMU.readMag();
     mag = magCal_soft * Vector<float,3> {(float)IMU.mx-magCal_hard(0),(float)IMU.my-magCal_hard(1),(float)IMU.mz-magCal_hard(2)};
-    mX = -IMU.calcMag(mag(0));
-    mY = IMU.calcMag(mag(1));
-    mZ = -IMU.calcMag(mag(2));
-    // Serial.print(mX,5); Serial.print(", "); Serial.print(mY,5); Serial.print(", "); Serial.println(mZ,5);
+    mZ = IMU.calcMag(mag(0));
+    mY = -IMU.calcMag(mag(1));
+    mX = IMU.calcMag(mag(2));
 
     if(magFilter) {
       // Apply Butterworth filter
@@ -164,6 +183,8 @@ void Sensors::getData() {
     }
     float magMag = sqrtf(mX*mX+mY*mY+mZ*mZ);  //normalize magnetometer reading
     mX /= magMag; mY /= magMag; mZ /= magMag;
+    // Serial.print(mX,5); Serial.print(", "); Serial.print(mY,5); Serial.print(", "); Serial.println(mZ,5);
+
     magAvail = true;
   }
 }
