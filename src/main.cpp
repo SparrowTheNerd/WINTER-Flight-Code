@@ -22,7 +22,7 @@ Vector3f magCal_hard = {2.24222e3f, 1.0018e3f, 0.9265e3f}; //hard and soft iron 
 Matrix<float,3,3> magCal_soft   {{ 0.9846f, 0.0401f,-0.0099f},
                                  { 0.0401f, 0.9890f,-0.0099f},
                                  {-0.0099f,-0.0099f, 1.0288}};  //worcester
-Vector3f accelHard {-0.108420f, 0.188170f, 0.430302f};
+Vector3f accelHard {0.408420f, -0.078680f, 0.130302f};
 Matrix3f accelSoft {{1.011042f, -0.007126f, 0.000493f},
                     {-0.007126f, 1.015386f, -0.008700f},
                     {0.000493f, -0.008700f, 1.001993f}};
@@ -52,11 +52,6 @@ void loop() {
   
   kalman.filter(dT);
   // print_matrix(kalman.x);
-  // Serial.print("QUAT|");
-  // Serial.print(kalman.x(0),5); Serial.print(",");
-  // Serial.print(kalman.x(1),5); Serial.print(",");
-  // Serial.print(kalman.x(2),5); Serial.print(",");
-  // Serial.println(kalman.x(3),5);
   sens.magAvail = false;
   sens.baroAvail = false;
 }

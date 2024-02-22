@@ -1,10 +1,11 @@
 #include "KalmanFilter.h"
 
 const float sigGy = 2.2e-8f; //approx PSD of gyroscope noise (from matlab)
-const float sigMg = 4.35091e-5f;  //sigma squared of mag noise
+const float sigMg = 4.35091e-6f;  //sigma squared of mag noise
 
 KalmanFilter::KalmanFilter(Sensors& sensor, float latitude) : sens(sensor) {
-  this->dipAngle = atanf(2.f*tanf(latitude*DEG_TO_RAD))-(-0.3759f); //66.5*DEG_TO_RAD;
+  // this->dipAngle = atanf(2.f*tanf(latitude*DEG_TO_RAD))/*-(-0.3759f)*/; //66.5*DEG_TO_RAD; 
+  this->dipAngle = 66.546f*DEG_TO_RAD;
   this->I10 = Matrix<float,10,10>::Identity();
 };
 
@@ -25,19 +26,24 @@ void KalmanFilter::init() { //set initial values for filter
   x = xNew;
 
   //mBase = {-sinf(dipAngle), 0.f, cosf(dipAngle)}; //construct magnetometer base vector in ENU frame
-  //mBase = rotate(x, mBase).normalized();
-  mBase = {-0.07956, 0.42648, 0.90099};
-  //mBase = {cosf(dipAngle),0.f,sinf(dipAngle)};
+  // mBase = {-0.88336, 0.33126, 0.33157};  
+  mBase = {cosf(dipAngle),0.f,sinf(dipAngle)};
   sens.prev_filtered_mX = sens.mX; sens.prev_filtered_mY = sens.mY; sens.prev_filtered_mZ = sens.mZ; sens.prev_mX = sens.mX; sens.prev_mY = sens.mY; sens.prev_mZ = sens.mZ;
-  sens.magFilter = true;
+  sens.magFilter = false;
 }
 
 void KalmanFilter::predict(float dT) {
 	Vector3f w = {sens.gX,sens.gY,sens.gZ};
   Vector3f a = {sens.aX,sens.aY,sens.aZ};
+  // Serial.print(a(0),5); Serial.print(", "); Serial.print(a(1),5); Serial.print(", "); Serial.print(a(2),5); Serial.print("    ");
   a = invRotate(x, a);
   a(2) += 9.80665;
-  Serial.print(a(0),5); Serial.print(", "); Serial.print(a(1),5); Serial.print(", "); Serial.println(a(2),5);
+  // Serial.print("QUAT|");
+  // Serial.print(x(0),5); Serial.print(",");
+  // Serial.print(x(1),5); Serial.print(",");
+  // Serial.print(x(2),5); Serial.print(",");
+  // Serial.print(x(3),5); Serial.print("    ");
+  // Serial.print(a(0),5); Serial.print(", "); Serial.print(a(1),5); Serial.print(", "); Serial.println(a(2),5);
   a = rotate(x, a);
   float X = w(0)*dT/2.f; float Y = w(1)*dT/2.f; float Z = w(2)*dT/2.f;
   quaternion qPrev = {x(0), x(1), x(2), x(3)};
@@ -92,19 +98,41 @@ void KalmanFilter::correct() {
   H << rx*q.w+ry*q.z-rz*q.y, rx*q.y+ry*q.y+rz*q.z,-rx*q.y+ry*q.x-rz*q.w,-rx*q.z+ry*q.w+rz*q.x, 0,0,0,0,0,0,
       -rx*q.z+ry*q.w+rz*q.x, rx*q.y-ry*q.x+rz*q.w, rx*q.x+ry*q.y+rz*q.z,-rx*q.w-ry*q.z+rz*q.y, 0,0,0,0,0,0,
        rx*q.y-ry*q.x+rz*q.w, rx*q.z-ry*q.w-rz*q.x, rx*q.w+ry*q.z-rz*q.y, rx*q.x+ry*q.y+rz*q.z, 0,0,0,0,0,0; //measurement model jacobian
-  //H *= 2.f;
+  H *= 2.f;
+  // H << rx*q.w+ry*q.z-rz*q.y, rx*q.x+ry*q.y+rz*q.z, -rx*q.y+ry*q.x-rz*q.w, -rx*q.z+ry*q.w+rz*q.x, 0, 0, 0, 0, 0, 0,
+  //     -rx*q.z+ry*q.w+rz*q.x, rx*q.y-ry*q.x+rz*q.w, rx*q.x+ry*q.y+rz*q.z, -rx*q.w-ry*q.z+rz*q.y, 0, 0, 0, 0, 0, 0,
+  //      rx*q.y-ry*q.x+rz*q.w, rx*q.z-ry*q.w-rz*q.x, rx*q.w+ry*q.z-rz*q.y, rx*q.x+ry*q.y+rz*q.z, 0, 0, 0, 0, 0, 0; //measurement model jacobian
+  // // H *= 2.f;
   v = z - h; //innovation
   S = H*P_pred*H.transpose() + R; //innovation covariance
   K = P_pred*H.transpose()*Inverse(S); //kalman gain
 
-  // Serial.print(m(0),5); Serial.print(", "); Serial.print(m(1),5); Serial.print(", "); Serial.println(m(2),5);
-  
+  Serial.print(mBase(0),5); Serial.print(", "); Serial.print(mBase(1),5); Serial.print(", "); Serial.print(mBase(2),5); Serial.print("\t");
+  Serial.print(m(0),5); Serial.print(", "); Serial.print(m(1),5); Serial.print(", "); Serial.print(m(2),5); Serial.print("\t");
+  Serial.print(x_pred(0),5); Serial.print(",");
+  Serial.print(x_pred(1),5); Serial.print(",");
+  Serial.print(x_pred(2),5); Serial.print(",");
+  Serial.print(x_pred(3),5); Serial.print(" \t");
+  Serial.print(h(0),5); Serial.print(", "); Serial.print(h(1),5); Serial.print(", "); Serial.print(h(2),5); Serial.print("\t");
+  Serial.print(v(0),5); Serial.print(", "); Serial.print(v(1),5); Serial.print(", "); Serial.println(v(2),5);
+
+
   x = x_pred + K*v; //updated state estimate
   Vector4f Q = {x(0), x(1), x(2), x(3)}; Q.normalize();
   Vector<float,10> xNew = {Q(0), Q(1), Q(2), Q(3), x(4), x(5), x(6), x(7), x(8), x(9)};
   x = xNew;
   
   P = (I10 - K*H)*P_pred; //updated state covariance
+  
+
+
+
+
+  // x = x_pred;
+  // Serial.print(x_pred(0),5); Serial.print(",");
+  // Serial.print(x_pred(1),5); Serial.print(",");
+  // Serial.print(x_pred(2),5); Serial.print(",");
+  // Serial.println(x_pred(3),5);
 }
 
 void KalmanFilter::filter(float dT) {
@@ -122,10 +150,9 @@ Vector3f KalmanFilter::rotate(Vector<float,10> A, Vector3f meas) {
 
 Vector3f KalmanFilter::invRotate(Vector<float,10> A, Vector3f meas) {
   quaternion q = {A(0), A(1), A(2), A(3)};
-  Matrix3f rot {{q.w*q.w + q.x*q.x - q.y*q.y - q.z*q.z, 2*(q.x*q.y + q.w*q.z), 2*(q.x*q.z - q.w*q.y)},
-								{2*(q.x*q.y - q.w*q.z), q.w*q.w - q.x*q.x + q.y*q.y - q.z*q.z, 2*(q.y*q.z + q.w*q.x)},
-								{2*(q.x*q.z + q.w*q.y), 2*(q.y*q.z - q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z}};
-  rot.transposeInPlace();
+  Matrix3f rot {{q.w*q.w + q.x*q.x - q.y*q.y - q.z*q.z, 2*(q.x*q.y - q.w*q.z), 2*(q.x*q.z + q.w*q.y)},
+								{2*(q.x*q.y + q.w*q.z), q.w*q.w - q.x*q.x + q.y*q.y - q.z*q.z, 2*(q.y*q.z - q.w*q.x)},
+								{2*(q.x*q.z - q.w*q.y), 2*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z}};
   return rot*meas;
 
 }

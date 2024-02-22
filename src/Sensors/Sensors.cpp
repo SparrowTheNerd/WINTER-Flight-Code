@@ -13,13 +13,13 @@ Sensors::Sensors(Vector3f magHard, Matrix3f magSoft, Vector3f accelHard, Matrix3
 void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and high-G accel
   IMU.settings.gyro.enabled = true;
   IMU.settings.gyro.scale = 500; //500dps
-  IMU.settings.gyro.sampleRate = 5; //476hz
+  IMU.settings.gyro.sampleRate = 4; //2xx hz
   IMU.settings.gyro.lowPowerEnable = false;
   IMU.settings.gyro.HPFEnable = false;
 
   IMU.settings.accel.enabled = true;
   IMU.settings.accel.scale = 16;    //16G
-  IMU.settings.accel.sampleRate = 5; //476hz
+  IMU.settings.accel.sampleRate = 4; //2xx hz
 
   IMU.settings.mag.enabled = true;
   IMU.settings.mag.scale = 4;     //4 Gauss
@@ -145,13 +145,17 @@ void Sensors::getData() {
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
-    // accel = accelSoft * (Vector<float,3> {IMU.calcAccel(IMU.az)*9.80665f-accelHard(0),-IMU.calcAccel(IMU.ay)*9.80665f-accelHard(1),-IMU.calcAccel(IMU.ax)*9.80665f-accelHard(2)});
-    // aX = accel(0);
-    // aY = accel(1);
-    // aZ = accel(2);
-    aZ = -IMU.calcAccel(IMU.ax)*9.80665f-accelHard(0);
-    aY = -IMU.calcAccel(IMU.ay)*9.80665f-accelHard(1);
-    aX = IMU.calcAccel(IMU.az)*9.80665f-accelHard(2);
+    accel = accelSoft * (Vector<float,3> {IMU.calcAccel(IMU.az)*9.80665f-accelHard(0),-IMU.calcAccel(IMU.ay)*9.80665f-accelHard(1),-IMU.calcAccel(IMU.ax)*9.80665f-accelHard(2)});
+    aX = accel(0);
+    aY = accel(1);
+    aZ = accel(2);
+    // aZ = -IMU.calcAccel(IMU.ax)*9.80665f-accelHard(0);
+    // aY = -IMU.calcAccel(IMU.ay)*9.80665f-accelHard(1);
+    // aX = IMU.calcAccel(IMU.az)*9.80665f-accelHard(2);
+
+    // Serial.print(IMU.calcAccel(IMU.az)*9.80665f,5); Serial.print(", ");
+    // Serial.print(-IMU.calcAccel(IMU.ay)*9.80665f,5); Serial.print(", ");
+    // Serial.println(-IMU.calcAccel(IMU.ax)*9.80665f,5);
     
   }
   if (IMU.magAvailable()) {
