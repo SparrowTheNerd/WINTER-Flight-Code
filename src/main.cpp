@@ -12,6 +12,10 @@ RH_RF95 rf95(CS,INT,spi);
 void pinModeAF(int ulPin, uint32_t Alternate);
 uint32_t start,end;
 
+struct packet {
+  float float1,float2,float3;
+} dataPacket;
+
 void setup() 
 {
 
@@ -23,7 +27,7 @@ void setup()
   spi.begin();
 
   SerialUSB.begin(); //start serial port
-  // while(!SerialUSB);
+  while(!SerialUSB);
   if (!rf95.init())
     Serial.println("init failed");  
   else {Serial.println("init success");}
@@ -40,16 +44,14 @@ int16_t packetnum = 0;  // packet counter, we increment per xmission
 float randomFloat() { return (float)(rand()) / (float)(rand()); } //random float generator
 
 void loop() {
+  delay(100);
   if(rf95.mode() != rf95.RHModeTx) {
-    float randFloat1 = randomFloat();
-    float randFloat2 = randomFloat();
-    float randFloat3 = randomFloat();
-    float floats[] = {randFloat1,randFloat2,randFloat3};
-    char radiopacket[sizeof(floats)];
-    memcpy(radiopacket,&floats,sizeof(floats));
+    dataPacket = (packet){randomFloat(),randomFloat(),randomFloat()};
+    char radiopacket[sizeof(dataPacket)];
+    memcpy(radiopacket,&dataPacket,sizeof(dataPacket));
     // ltoa(packetnum++, radiopacket+51, 10);
     Serial.print("Sending ");
-    Serial.print(floats[0],5); Serial.print("  "); Serial.print(floats[1],5); Serial.print("  "); Serial.println(floats[2],5);
+    Serial.print(dataPacket.float1,5); Serial.print("  "); Serial.print(dataPacket.float2,5); Serial.print("  "); Serial.println(dataPacket.float3,5);
     // Send a message!
     start = micros();
     rf95.send((uint8_t *)radiopacket, strlen(radiopacket));
