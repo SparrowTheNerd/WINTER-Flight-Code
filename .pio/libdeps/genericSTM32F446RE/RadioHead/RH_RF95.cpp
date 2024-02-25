@@ -105,11 +105,11 @@ bool RH_RF95::init()
 	_deviceForInterrupt[_myInterruptIndex] = this;
 	
 	if (_myInterruptIndex == 0)
-	    attachInterrupt(interruptNumber, isr0, RISING);
+	    attachInterrupt(interruptNumber, isr0, HIGH);
 	else if (_myInterruptIndex == 1)
-	    attachInterrupt(interruptNumber, isr1, RISING);
+	    attachInterrupt(interruptNumber, isr1, HIGH);
 	else if (_myInterruptIndex == 2)
-	    attachInterrupt(interruptNumber, isr2, RISING);
+	    attachInterrupt(interruptNumber, isr2, HIGH);
 	else
 	    return false; // Too many devices, not enough interrupt vectors
     }

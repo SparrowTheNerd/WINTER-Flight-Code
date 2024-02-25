@@ -3,13 +3,18 @@
 #include <SPI.h>
 #include <RH_RF95.h>
 
+#define CS PC2
+#define INT PC12
+
 RHHardwareSPI spi;
-RH_RF95 rf95(PC2,PC12,spi);
+RH_RF95 rf95(CS,INT,spi);
 
 void pinModeAF(int ulPin, uint32_t Alternate);
+uint32_t start,end;
 
 void setup() 
 {
+
   pinMode(PC0, OUTPUT); pinMode(PC1, OUTPUT);
   digitalWrite(PC0, HIGH); digitalWrite(PC1, HIGH); //pull other chip selects high
   pinModeAF(PB4,GPIO_AF5_SPI1); SPI.setMISO(PB4);
@@ -18,7 +23,7 @@ void setup()
   spi.begin();
 
   SerialUSB.begin(); //start serial port
-  while(!SerialUSB);
+  // while(!SerialUSB);
   if (!rf95.init())
     Serial.println("init failed");  
   else {Serial.println("init success");}
@@ -27,35 +32,32 @@ void setup()
   // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
 
   // You can change the modulation parameters with eg
-  rf95.setModemConfig(RH_RF95::Bw125Cr48Sf4096);
+  rf95.setModemConfig(RH_RF95::Bw125Cr45Sf128);
 }
 
 int16_t packetnum = 0;  // packet counter, we increment per xmission
 
+float randomFloat() { return (float)(rand()) / (float)(rand()); } //random float generator
+
 void loop() {
-  char radiopacket[20] = "Hello World #";
-  itoa(packetnum++, radiopacket+13, 10);
-  Serial.print("Sending "); Serial.println(radiopacket);
-
-  // Send a message!
-  rf95.send((uint8_t *)radiopacket, strlen(radiopacket));
-  rf95.waitPacketSent();
-
-  // Now wait for a reply
-  uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
-  uint8_t len = sizeof(buf);
-
-  if (rf95.waitAvailableTimeout(500)) {
-    // Should be a reply message for us now
-    if (rf95.recv(buf, &len)) {
-      Serial.print("Got a reply: ");
-      Serial.println((char*)buf);
-    } else {
-      Serial.println("Receive failed");
-    }
-  } else {
-    Serial.println("No reply, is another RFM95 listening?");
+  if(rf95.mode() != rf95.RHModeTx) {
+    float randFloat1 = randomFloat();
+    float randFloat2 = randomFloat();
+    float randFloat3 = randomFloat();
+    float floats[] = {randFloat1,randFloat2,randFloat3};
+    char radiopacket[sizeof(floats)];
+    memcpy(radiopacket,&floats,sizeof(floats));
+    // ltoa(packetnum++, radiopacket+51, 10);
+    Serial.print("Sending ");
+    Serial.print(floats[0],5); Serial.print("  "); Serial.print(floats[1],5); Serial.print("  "); Serial.println(floats[2],5);
+    // Send a message!
+    start = micros();
+    rf95.send((uint8_t *)radiopacket, strlen(radiopacket));
+    rf95.waitPacketSent();
+    end = micros()-start;
+    Serial.print("dT: "); Serial.println((float)end/1000000.f,6);
   }
+  else delay(50);
 }
 
 void pinModeAF(int ulPin, uint32_t Alternate)
