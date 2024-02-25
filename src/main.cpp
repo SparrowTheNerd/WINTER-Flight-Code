@@ -49,7 +49,6 @@ void loop() {
     dataPacket = (packet){randomFloat(),randomFloat(),randomFloat()};
     char radiopacket[sizeof(dataPacket)];
     memcpy(radiopacket,&dataPacket,sizeof(dataPacket));
-    // ltoa(packetnum++, radiopacket+51, 10);
     Serial.print("Sending ");
     Serial.print(dataPacket.float1,5); Serial.print("  "); Serial.print(dataPacket.float2,5); Serial.print("  "); Serial.println(dataPacket.float3,5);
     // Send a message!
