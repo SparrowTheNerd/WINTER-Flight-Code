@@ -5,8 +5,6 @@
 #include <MS5xxx.h>
 #include <ArduinoEigenDense.h>
 using namespace Eigen;
-//#include <BasicLinearAlgebra.h>
-//using namespace BLA;
 
 class Sensors{
 	public:

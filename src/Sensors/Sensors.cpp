@@ -1,5 +1,4 @@
 #include "Sensors/Sensors.h"
-//using namespace BLA;
 using namespace Eigen;
 
 Sensors::Sensors(Vector3f magHard, Matrix3f magSoft, Vector3f accelHard, Matrix3f accelSoft) {
@@ -139,9 +138,9 @@ void Sensors::getData() {
   //baroData();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
-    gZ = -(IMU.calcGyro(IMU.gx) - xOfst)/180.f;    //for some godforsaken reason the gyro is in some nonexistent unit pi*deg/s
-    gY = -(IMU.calcGyro(IMU.gy) - yOfst)/180.f;
-    gX = (IMU.calcGyro(IMU.gz) - zOfst)/180.f;
+    gZ = -(IMU.calcGyro(IMU.gx) - xOfst)*PI/180.f;    //for some godforsaken reason the gyro is in some nonexistent unit pi*deg/s
+    gY = -(IMU.calcGyro(IMU.gy) - yOfst)*PI/180.f;
+    gX = (IMU.calcGyro(IMU.gz) - zOfst)*PI/180.f;
   }
   if (IMU.accelAvailable()) {
     IMU.readAccel();
