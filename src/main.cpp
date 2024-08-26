@@ -7,58 +7,57 @@
 #define INT PC12
 
 RHHardwareSPI spi;
-RH_RF95 rf95(CS,INT,spi);
-
 void pinModeAF(int ulPin, uint32_t Alternate);
-uint32_t start,end;
-
-struct packet {
-  float float1,float2,float3;
-} dataPacket;
 
 void setup() 
 {
-
-  pinMode(PC0, OUTPUT); pinMode(PC1, OUTPUT);
-  digitalWrite(PC0, HIGH); digitalWrite(PC1, HIGH); //pull other chip selects high
-  pinModeAF(PB4,GPIO_AF5_SPI1); SPI.setMISO(PB4);
-  pinModeAF(PB5,GPIO_AF5_SPI1); SPI.setMOSI(PB5);
-  pinModeAF(PB3,GPIO_AF5_SPI1); SPI.setSCLK(PB3);
-  spi.begin();
-
-  SerialUSB.begin(); //start serial port
-  while(!SerialUSB);
-  if (!rf95.init())
-    Serial.println("init failed");  
-  else {Serial.println("init success");}
-  rf95.setFrequency(915.0); //set frequency to 915MHz
-  rf95.setTxPower(20,false); //set the transmit power to 20dBm using PA_BOOST
-  // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
-
-  // You can change the modulation parameters with eg
-  rf95.setModemConfig(RH_RF95::Bw125Cr45Sf128);
+  Wire.setSCL(PB8_ALT0);
+  Wire.setSDA(PB9_ALT0);
+  Wire.begin();
+  SerialUSB.begin();
+  
 }
 
-int16_t packetnum = 0;  // packet counter, we increment per xmission
-
-float randomFloat() { return (float)(rand()) / (float)(rand()); } //random float generator
 
 void loop() {
-  delay(100);
-  if(rf95.mode() != rf95.RHModeTx) {
-    dataPacket = (packet){randomFloat(),randomFloat(),randomFloat()};
-    char radiopacket[sizeof(dataPacket)];
-    memcpy(radiopacket,&dataPacket,sizeof(dataPacket));
-    Serial.print("Sending ");
-    Serial.print(dataPacket.float1,5); Serial.print("  "); Serial.print(dataPacket.float2,5); Serial.print("  "); Serial.println(dataPacket.float3,5);
-    // Send a message!
-    start = micros();
-    rf95.send((uint8_t *)radiopacket, strlen(radiopacket));
-    rf95.waitPacketSent();
-    end = micros()-start;
-    Serial.print("dT: "); Serial.println((float)end/1000000.f,6);
+  byte error, address;
+  int nDevices;
+
+  Serial.println("Scanning...");
+
+  nDevices = 0;
+  for(address = 1; address < 127; address++ )
+  {
+    // The i2c_scanner uses the return value of
+    // the Write.endTransmisstion to see if
+    // a device did acknowledge to the address.
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0)
+    {
+      Serial.print("I2C device found at address 0x");
+      if (address<16)
+        Serial.print("0");
+      Serial.print(address,HEX);
+      Serial.println("  !");
+
+      nDevices++;
+    }
+    else if (error==4)
+    {
+      Serial.print("Unknown error at address 0x");
+      if (address<16)
+        Serial.print("0");
+      Serial.println(address,HEX);
+    }
   }
-  else delay(50);
+  if (nDevices == 0)
+    Serial.println("No I2C devices found\n");
+  else
+    Serial.println("done\n");
+
+  delay(5000);           // wait 5 seconds for next scan
 }
 
 void pinModeAF(int ulPin, uint32_t Alternate)
