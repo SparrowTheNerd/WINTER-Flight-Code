@@ -56,7 +56,8 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
 */
 
   float xcal = 0, ycal = 0, zcal = 0, magMag = 0, mbaseX = 0, mbaseY = 0, mbaseZ = 0, abaseX = 0, abaseY = 0, abaseZ = 0;
-  for(int i = 0; i < 250; i++) {
+  uint16_t numCal = 500;
+  for(int i = 0; i < numCal; i++) {
     while (!IMU.gyroAvailable()) {delay(1);};
     IMU.readGyro();
     gX = (IMU.calcGyro(IMU.gx) );
@@ -80,9 +81,9 @@ void Sensors::init() {    //initialize 9DoF IMU settings and turn on baro and hi
     aZ = accel(2);
     abaseX += aX; abaseY += aY; abaseZ += aZ;
   }
-  magBase = {mbaseX/250.f,mbaseY/250.f,mbaseZ/250.f};
-  aBase = {abaseX/250.f,abaseY/250.f,abaseZ/250.f};
-  xOfst = xcal/250.f; yOfst = ycal/250.f; zOfst = zcal/250.f;
+  magBase = {mbaseX/(float)numCal,mbaseY/(float)numCal,mbaseZ/(float)numCal};
+  aBase = {abaseX/(float)numCal,abaseY/(float)numCal,abaseZ/(float)numCal};
+  xOfst = xcal/(float)numCal; yOfst = ycal/(float)numCal; zOfst = zcal/(float)numCal;
 }
 
 void Sensors::baroData() {
@@ -138,10 +139,11 @@ void Sensors::getData() {
   //baroData();
   if (IMU.gyroAvailable()) {
     IMU.readGyro();
-    gZ = -(IMU.calcGyro(IMU.gx) - xOfst)*PI/180.f;    //for some godforsaken reason the gyro is in some nonexistent unit pi*deg/s
+    gZ = -(IMU.calcGyro(IMU.gx) - xOfst)*PI/180.f;
     gY = -(IMU.calcGyro(IMU.gy) - yOfst)*PI/180.f;
     gX = (IMU.calcGyro(IMU.gz) - zOfst)*PI/180.f;
   }
+  // Serial.print(gX,5); Serial.print(", "); Serial.print(gY,5); Serial.print(", "); Serial.println(gZ,5);
   if (IMU.accelAvailable()) {
     IMU.readAccel();
     accel = accelSoft * (Vector<float,3> {IMU.calcAccel(IMU.az)*9.80665f-accelHard(0),-IMU.calcAccel(IMU.ay)*9.80665f-accelHard(1),-IMU.calcAccel(IMU.ax)*9.80665f-accelHard(2)});

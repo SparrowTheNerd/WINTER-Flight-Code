@@ -6,7 +6,7 @@
 #include <ArduinoEigenDense.h>
 #define EIGEN_NO_DEBUG 1
 
-#define HAS_RADIO
+// #define HAS_RADIO
 
 using namespace Eigen;
 

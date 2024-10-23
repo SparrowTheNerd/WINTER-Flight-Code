@@ -26,8 +26,8 @@ void KalmanFilter::init() { //set initial values for filter
   x = xNew;
 
   //mBase = {-sinf(dipAngle), 0.f, cosf(dipAngle)}; //construct magnetometer base vector in ENU frame
-  // mBase = {-0.88336, 0.33126, 0.33157};  
-  mBase = {cosf(dipAngle),0.f,sinf(dipAngle)};
+  mBase = {-0.29548, 0.78327, 0.54697};  
+  // mBase = {cosf(dipAngle),0.f,sinf(dipAngle)};
   sens.prev_filtered_mX = sens.mX; sens.prev_filtered_mY = sens.mY; sens.prev_filtered_mZ = sens.mZ; sens.prev_mX = sens.mX; sens.prev_mY = sens.mY; sens.prev_mZ = sens.mZ;
   sens.magFilter = false;
 }
@@ -107,14 +107,14 @@ void KalmanFilter::correct() {
   S = H*P_pred*H.transpose() + R; //innovation covariance
   K = P_pred*H.transpose()*Inverse(S); //kalman gain
 
-  Serial.print(mBase(0),5); Serial.print(", "); Serial.print(mBase(1),5); Serial.print(", "); Serial.print(mBase(2),5); Serial.print("\t");
-  Serial.print(m(0),5); Serial.print(", "); Serial.print(m(1),5); Serial.print(", "); Serial.print(m(2),5); Serial.print("\t");
-  Serial.print(x_pred(0),5); Serial.print(",");
-  Serial.print(x_pred(1),5); Serial.print(",");
-  Serial.print(x_pred(2),5); Serial.print(",");
-  Serial.print(x_pred(3),5); Serial.print(" \t");
-  Serial.print(h(0),5); Serial.print(", "); Serial.print(h(1),5); Serial.print(", "); Serial.print(h(2),5); Serial.print("\t");
-  Serial.print(v(0),5); Serial.print(", "); Serial.print(v(1),5); Serial.print(", "); Serial.println(v(2),5);
+  // Serial.print(mBase(0),5); Serial.print(", "); Serial.print(mBase(1),5); Serial.print(", "); Serial.print(mBase(2),5); Serial.print("\t");
+  // Serial.print(m(0),5); Serial.print(", "); Serial.print(m(1),5); Serial.print(", "); Serial.print(m(2),5); Serial.print("\t");
+  // Serial.print(x_pred(0),5); Serial.print(",");
+  // Serial.print(x_pred(1),5); Serial.print(",");
+  // Serial.print(x_pred(2),5); Serial.print(",");
+  // Serial.print(x_pred(3),5); Serial.print(" \t");
+  // Serial.print(h(0),5); Serial.print(", "); Serial.print(h(1),5); Serial.print(", "); Serial.print(h(2),5); Serial.print("\t");
+  // Serial.print(v(0),5); Serial.print(", "); Serial.print(v(1),5); Serial.print(", "); Serial.println(v(2),5);
 
 
   x = x_pred + K*v; //updated state estimate
@@ -123,16 +123,12 @@ void KalmanFilter::correct() {
   x = xNew;
   
   P = (I10 - K*H)*P_pred; //updated state covariance
-  
-
-
-
 
   // x = x_pred;
-  // Serial.print(x_pred(0),5); Serial.print(",");
-  // Serial.print(x_pred(1),5); Serial.print(",");
-  // Serial.print(x_pred(2),5); Serial.print(",");
-  // Serial.println(x_pred(3),5);
+  Serial.print(x(0),5); Serial.print(",");
+  Serial.print(x(1),5); Serial.print(",");
+  Serial.print(x(2),5); Serial.print(",");
+  Serial.println(x(3),5);
 }
 
 void KalmanFilter::filter(float dT) {
