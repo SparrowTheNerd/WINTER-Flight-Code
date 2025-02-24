@@ -1,32 +1,59 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <SPI.h>
-#include <RH_RF95.h>
+#include <RadioLib.h>
 
-#define CS PC2
-#define INT PC12
+#define CS_LORA PC2
+#define RST_LORA PC11
+#define INT_LORA PC12
+#define BUSY_LORA PC15
 
-RHHardwareSPI spi;
 void pinModeAF(int ulPin, uint32_t Alternate);
+SPIClass SPI_1(PB5,PB4,PB3);
+SPISettings spi1Settings(4E6, MSBFIRST, SPI_MODE0);
+
+SX1262 radio = new Module(CS_LORA, INT_LORA, RST_LORA,BUSY_LORA,SPI_1,spi1Settings);   //configure SX1262
+
+struct radioParams
+{
+  float freq = 915.0;
+  float bw = 125.0;
+  uint8_t sf = 7;
+  uint8_t cr = 5; // 4/n
+  uint8_t syncWord = RADIOLIB_SX126X_SYNC_WORD_PRIVATE;
+  int8_t power = 0;
+  uint16_t preambleLength = 8;
+  float tcxoVoltage = 3.3;
+  bool useRegulatorLDO = false;
+} radP;
 
 void setup() 
 {
+  pinMode(CS_LORA, OUTPUT);
+  pinMode(RST_LORA, OUTPUT);
+  pinMode(INT_LORA, INPUT);
+  pinMode(BUSY_LORA, INPUT);
+  pinModeAF(PB3, 5); 
+  pinModeAF(PB4, 5);
+  pinModeAF(PB5, 5);
+
   Wire.setSCL(PB8_ALT0);
   Wire.setSDA(PB9_ALT0);
   Wire.begin();
   SerialUSB.begin();
-  
+
 }
 
 
 void loop() {
+
   byte error, address;
   int nDevices;
 
   Serial.println("Scanning...");
 
   nDevices = 0;
-  for(address = 1; address < 127; address++ )
+  for(address = 1; address < 127; address++ ) 
   {
     // The i2c_scanner uses the return value of
     // the Write.endTransmisstion to see if
@@ -37,20 +64,20 @@ void loop() {
     if (error == 0)
     {
       Serial.print("I2C device found at address 0x");
-      if (address<16)
+      if (address<16) 
         Serial.print("0");
       Serial.print(address,HEX);
       Serial.println("  !");
 
       nDevices++;
     }
-    else if (error==4)
+    else if (error==4) 
     {
-      Serial.print("Unknown error at address 0x");
-      if (address<16)
+      Serial.print("Unknow error at address 0x");
+      if (address<16) 
         Serial.print("0");
       Serial.println(address,HEX);
-    }
+    }    
   }
   if (nDevices == 0)
     Serial.println("No I2C devices found\n");
